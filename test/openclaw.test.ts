@@ -93,7 +93,7 @@ describe('Security Boundaries', () => {
     expect(foundSecretsPolicy).toBe(true);
   });
 
-  test('Both roles have AmazonSSMManagedInstanceCore managed policy', () => {
+  test('Both EC2 roles allow SSM Session Manager access', () => {
     const roles = template.findResources('AWS::IAM::Role');
     const ec2Roles = Object.values(roles).filter(
       (r) => r.Properties?.AssumeRolePolicyDocument?.Statement?.[0]?.Principal?.Service === 'ec2.amazonaws.com',
@@ -160,7 +160,7 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('Both EC2 instances require IMDSv2', () => {
+  test('Both EC2 instances require IMDSv2 to prevent SSRF credential theft', () => {
     // CDK's requireImdsv2 creates LaunchTemplates with HttpTokens: required
     const launchTemplates = template.findResources('AWS::EC2::LaunchTemplate');
     const imdsv2Templates = Object.values(launchTemplates).filter(
@@ -179,6 +179,23 @@ describe('Resource Configuration', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't4g.nano',
     });
+  });
+
+  test('Agent EC2 user data installs Docker', () => {
+    const instances = template.findResources('AWS::EC2::Instance');
+    let foundDockerUserData = false;
+
+    for (const [, instance] of Object.entries(instances)) {
+      if (instance.Properties?.InstanceType === 't4g.large') {
+        const userDataStr = JSON.stringify(instance.Properties?.UserData);
+        expect(userDataStr).toContain('dnf install -y docker docker-compose-plugin');
+        expect(userDataStr).toContain('systemctl enable docker');
+        expect(userDataStr).toContain('systemctl start docker');
+        foundDockerUserData = true;
+      }
+    }
+
+    expect(foundDockerUserData).toBe(true);
   });
 
   test('Agent EC2 has 30 GB gp3 EBS volume', () => {

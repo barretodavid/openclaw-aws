@@ -113,6 +113,15 @@ export class OpenclawStack extends cdk.Stack {
       requireImdsv2: true,
     });
 
+    // --- Docker on Agent ---
+    agentInstance.addUserData(
+      'dnf update -y',
+      'dnf install -y docker docker-compose-plugin',
+      'systemctl enable docker',
+      'systemctl start docker',
+      'usermod -aG docker ec2-user',
+    );
+
     const proxyInstance = new ec2.Instance(this, 'ProxyInstance', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
