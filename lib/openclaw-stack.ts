@@ -6,6 +6,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
@@ -156,6 +157,18 @@ export class OpenclawStack extends cdk.Stack {
       requireImdsv2: true,
     });
 
+    // --- Private DNS (proxy.vpc) ---
+    const hostedZone = new route53.PrivateHostedZone(this, 'InternalZone', {
+      zoneName: 'vpc',
+      vpc,
+    });
+
+    new route53.ARecord(this, 'ProxyDns', {
+      zone: hostedZone,
+      recordName: 'proxy',
+      target: route53.RecordTarget.fromIpAddresses(proxyInstance.instancePrivateIp),
+    });
+
     // --- Stack Outputs ---
     new cdk.CfnOutput(this, 'AgentInstanceId', {
       value: agentInstance.instanceId,
@@ -169,7 +182,7 @@ export class OpenclawStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'ProxyPrivateIp', {
       value: proxyInstance.instancePrivateIp,
-      description: 'Proxy private IP - configure agent LLM endpoint as http://<ip>:8080',
+      description: 'Proxy address: http://proxy.vpc:8080',
     });
 
     new cdk.CfnOutput(this, 'WalletKeyArn', {

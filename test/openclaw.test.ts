@@ -220,6 +220,19 @@ describe('Resource Configuration', () => {
     expect(foundDockerUserData).toBe(true);
   });
 
+  test('Private hosted zone exists with zone name vpc', () => {
+    template.hasResourceProperties('AWS::Route53::HostedZone', {
+      Name: 'vpc.',
+    });
+  });
+
+  test('A record for proxy.vpc points to proxy instance', () => {
+    template.hasResourceProperties('AWS::Route53::RecordSet', {
+      Name: 'proxy.vpc.',
+      Type: 'A',
+    });
+  });
+
   test('Agent EC2 has 30 GB gp3 EBS volume', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       BlockDeviceMappings: Match.arrayWith([
