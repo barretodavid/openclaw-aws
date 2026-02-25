@@ -1,0 +1,6 @@
+node_modules
+cdk.out
+.env
+package-lock.json
+*.d.ts
+reference_architecture.png
