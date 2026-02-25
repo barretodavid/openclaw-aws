@@ -1,10 +1,26 @@
 import * as cdk from 'aws-cdk-lib/core';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { OpenclawStack } from '../lib/openclaw-stack';
+import { OpenclawStack, PROVIDER_REGISTRY } from '../lib/openclaw-stack';
 
 let template: Template;
 
+// Mock env vars to configure 2 providers (one header-based, one path-based)
+const MOCK_ENV_VARS: Record<string, string> = {
+  ANTHROPIC_API_KEY: 'test-anthropic-key',
+  ALCHEMY_API_KEY: 'test-alchemy-key',
+};
+
 beforeAll(() => {
+  // Clear all provider env vars to prevent .env from leaking into tests
+  for (const config of Object.values(PROVIDER_REGISTRY)) {
+    delete process.env[config.envVar];
+  }
+
+  // Set only the mock env vars
+  for (const [key, value] of Object.entries(MOCK_ENV_VARS)) {
+    process.env[key] = value;
+  }
+
   const app = new cdk.App();
 
   // Mock VPC lookup context so tests run without AWS credentials
@@ -30,6 +46,12 @@ beforeAll(() => {
   });
 
   template = Template.fromStack(stack);
+});
+
+afterAll(() => {
+  for (const key of Object.keys(MOCK_ENV_VARS)) {
+    delete process.env[key];
+  }
 });
 
 // --- Security Boundary Tests ---
@@ -188,7 +210,7 @@ describe('Resource Configuration', () => {
     for (const [, instance] of Object.entries(instances)) {
       if (instance.Properties?.InstanceType === 't4g.large') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('dnf install -y docker docker-compose-plugin');
+        expect(userDataStr).toContain('dnf install -y docker');
         expect(userDataStr).toContain('systemctl enable docker');
         expect(userDataStr).toContain('systemctl start docker');
         foundDockerUserData = true;
@@ -231,8 +253,8 @@ describe('Resource Counts', () => {
     template.resourceCountIs('AWS::KMS::Key', 1);
   });
 
-  test('exactly 1 Secrets Manager secret', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', 1);
+  test('one Secrets Manager secret per configured provider', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', Object.keys(MOCK_ENV_VARS).length);
   });
 
   test('exactly 1 SSM parameter', () => {

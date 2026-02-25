@@ -11,6 +11,32 @@ import { Construct } from 'constructs';
 
 const PROXY_PORT = 8080;
 
+type InjectConfig =
+  | { type: 'header'; name: string; prefix?: string }
+  | { type: 'path' };
+
+const PROVIDER_REGISTRY: Record<string, { envVar: string; inject: InjectConfig }> = {
+  // LLM providers
+  'api.anthropic.com':                 { envVar: 'ANTHROPIC_API_KEY',  inject: { type: 'header', name: 'x-api-key' } },
+  'api.openai.com':                    { envVar: 'OPENAI_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'generativelanguage.googleapis.com': { envVar: 'GOOGLE_API_KEY',     inject: { type: 'header', name: 'x-goog-api-key' } },
+  'api.mistral.ai':                    { envVar: 'MISTRAL_API_KEY',    inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'api.groq.com':                      { envVar: 'GROQ_API_KEY',       inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'api.x.ai':                          { envVar: 'XAI_API_KEY',        inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'openrouter.ai':                     { envVar: 'OPENROUTER_API_KEY', inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'api.venice.ai':                     { envVar: 'VENICE_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'api.cerebras.ai':                   { envVar: 'CEREBRAS_API_KEY',   inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  // Search
+  'api.search.brave.com':              { envVar: 'BRAVE_SEARCH_KEY',   inject: { type: 'header', name: 'X-Subscription-Token' } },
+  // Starknet RPC providers (Alchemy, Infura, Blast use API key in URL path -- industry convention)
+  'starknet-mainnet.g.alchemy.com':    { envVar: 'ALCHEMY_API_KEY',    inject: { type: 'path' } },
+  'starknet-mainnet.infura.io':        { envVar: 'INFURA_API_KEY',     inject: { type: 'path' } },
+  'api.cartridge.gg':                  { envVar: 'CARTRIDGE_API_KEY',  inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'data.voyager.online':               { envVar: 'VOYAGER_API_KEY',    inject: { type: 'header', name: 'x-apikey' } },
+};
+
+export { PROVIDER_REGISTRY, InjectConfig };
+
 export class OpenclawStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -22,32 +48,6 @@ export class OpenclawStack extends cdk.Stack {
       alias: 'openclaw-wallet-key',
       description: 'Starknet secp256r1 signing key - private key never leaves HSM',
       removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
-
-    // --- Secrets Manager (LLM API Key) ---
-    const llmApiKeySecret = new secretsmanager.Secret(this, 'LlmApiKey', {
-      secretName: 'openclaw/llm-api-key',
-      description: 'LLM provider API key - only the Proxy EC2 can read this',
-      secretStringValue: cdk.SecretValue.unsafePlainText(
-        process.env.LLM_API_KEY || 'REPLACE_ME',
-      ),
-    });
-
-    // --- SSM Parameter (Allowed LLM Providers) ---
-    const allowedLlmProviders = new ssm.StringListParameter(this, 'AllowedLlmProviders', {
-      parameterName: '/openclaw/allowed-llm-providers',
-      description: 'Allowed LLM provider domains - proxy only forwards to these hosts',
-      stringListValue: [
-        'api.openai.com',
-        'api.anthropic.com',
-        'generativelanguage.googleapis.com',
-        'api.mistral.ai',
-        'api.groq.com',
-        'api.x.ai',
-        'openrouter.ai',
-        'api.venice.ai',
-        'api.cerebras.ai',
-      ],
     });
 
     // --- Default VPC ---
@@ -84,13 +84,37 @@ export class OpenclawStack extends cdk.Stack {
 
     const proxyRole = new iam.Role(this, 'ProxyRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Proxy EC2 role - Secrets Manager read + SSM allowed providers read + SSM Session Manager',
+      description: 'Proxy EC2 role - Secrets Manager read + SSM proxy config read + SSM Session Manager',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
       ],
     });
-    llmApiKeySecret.grantRead(proxyRole);
-    allowedLlmProviders.grantRead(proxyRole);
+
+    // --- Per-Provider Secrets + Proxy Config ---
+    const proxyConfig: Record<string, { secretName: string; inject: InjectConfig }> = {};
+
+    for (const [domain, config] of Object.entries(PROVIDER_REGISTRY)) {
+      const apiKey = process.env[config.envVar];
+      if (!apiKey) continue;
+
+      const secretName = `openclaw/${config.envVar.toLowerCase().replace(/_/g, '-')}`;
+      const secret = new secretsmanager.Secret(this, `Secret-${config.envVar}`, {
+        secretName,
+        description: `API key for ${domain} - only the Proxy EC2 can read this`,
+        secretStringValue: cdk.SecretValue.unsafePlainText(apiKey),
+      });
+      secret.grantRead(proxyRole);
+
+      proxyConfig[domain] = { secretName, inject: config.inject };
+    }
+
+    // --- SSM Parameter (Proxy Config) ---
+    const proxyConfigParam = new ssm.StringParameter(this, 'ProxyConfig', {
+      parameterName: '/openclaw/proxy-config',
+      description: 'Proxy provider mapping - domain to secret name and injection method',
+      stringValue: JSON.stringify(proxyConfig),
+    });
+    proxyConfigParam.grantRead(proxyRole);
 
     // --- EC2 Instances ---
     const amazonLinux2023Arm = ec2.MachineImage.latestAmazonLinux2023({
@@ -116,7 +140,7 @@ export class OpenclawStack extends cdk.Stack {
     // --- Docker on Agent ---
     agentInstance.addUserData(
       'dnf update -y',
-      'dnf install -y docker docker-compose-plugin',
+      'dnf install -y docker',
       'systemctl enable docker',
       'systemctl start docker',
       'usermod -aG docker ec2-user',
@@ -153,14 +177,9 @@ export class OpenclawStack extends cdk.Stack {
       description: 'KMS wallet key ARN - use for kms:Sign calls',
     });
 
-    new cdk.CfnOutput(this, 'LlmApiKeySecretArn', {
-      value: llmApiKeySecret.secretArn,
-      description: 'Secrets Manager ARN for the LLM API key',
-    });
-
-    new cdk.CfnOutput(this, 'AllowedLlmProvidersParameter', {
-      value: allowedLlmProviders.parameterName,
-      description: 'SSM Parameter name for the allowed LLM provider domains',
+    new cdk.CfnOutput(this, 'ProxyConfigParameter', {
+      value: proxyConfigParam.parameterName,
+      description: 'SSM Parameter name for the proxy provider mapping',
     });
   }
 }
