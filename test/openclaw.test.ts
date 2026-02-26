@@ -220,6 +220,25 @@ describe('Resource Configuration', () => {
     expect(foundDockerUserData).toBe(true);
   });
 
+  test('Proxy EC2 user data installs Node.js and starts proxy service', () => {
+    const instances = template.findResources('AWS::EC2::Instance');
+    let foundProxyUserData = false;
+
+    for (const [, instance] of Object.entries(instances)) {
+      if (instance.Properties?.InstanceType === 't4g.nano') {
+        const userDataStr = JSON.stringify(instance.Properties?.UserData);
+        expect(userDataStr).toContain('dnf install -y nodejs npm unzip');
+        expect(userDataStr).toContain('npm install');
+        expect(userDataStr).toContain('npx tsc');
+        expect(userDataStr).toContain('systemctl enable openclaw-proxy');
+        expect(userDataStr).toContain('systemctl start openclaw-proxy');
+        foundProxyUserData = true;
+      }
+    }
+
+    expect(foundProxyUserData).toBe(true);
+  });
+
   test('Private hosted zone exists with zone name vpc', () => {
     template.hasResourceProperties('AWS::Route53::HostedZone', {
       Name: 'vpc.',
@@ -231,6 +250,40 @@ describe('Resource Configuration', () => {
       Name: 'proxy.vpc.',
       Type: 'A',
     });
+  });
+
+  test('Per-provider A records exist for each configured provider', () => {
+    // ANTHROPIC_API_KEY is set -> anthropic.proxy.vpc should exist
+    template.hasResourceProperties('AWS::Route53::RecordSet', {
+      Name: 'anthropic.proxy.vpc.',
+      Type: 'A',
+    });
+
+    // ALCHEMY_API_KEY is set -> alchemy.proxy.vpc should exist
+    template.hasResourceProperties('AWS::Route53::RecordSet', {
+      Name: 'alchemy.proxy.vpc.',
+      Type: 'A',
+    });
+  });
+
+  test('Proxy config SSM parameter is keyed by subdomain with backendDomain', () => {
+    const params = template.findResources('AWS::SSM::Parameter');
+    const proxyConfigParam = Object.values(params).find(
+      (p) => p.Properties?.Name === '/openclaw/proxy-config',
+    );
+    expect(proxyConfigParam).toBeDefined();
+
+    const configStr = proxyConfigParam!.Properties.Value;
+    const config = JSON.parse(configStr);
+
+    // Keyed by subdomain, not domain
+    expect(config.anthropic).toBeDefined();
+    expect(config.anthropic.backendDomain).toBe('api.anthropic.com');
+    expect(config.anthropic.api).toBe('anthropic');
+
+    expect(config.alchemy).toBeDefined();
+    expect(config.alchemy.backendDomain).toBe('starknet-mainnet.g.alchemy.com');
+    expect(config.alchemy.api).toBeNull();
   });
 
   test('Agent EC2 has 30 GB gp3 EBS volume', () => {
@@ -272,5 +325,10 @@ describe('Resource Counts', () => {
 
   test('exactly 1 SSM parameter', () => {
     template.resourceCountIs('AWS::SSM::Parameter', 1);
+  });
+
+  test('one base + one per-provider DNS A record', () => {
+    // 1 base (proxy.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
+    template.resourceCountIs('AWS::Route53::RecordSet', 1 + Object.keys(MOCK_ENV_VARS).length);
   });
 });

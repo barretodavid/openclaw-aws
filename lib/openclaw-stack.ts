@@ -1,12 +1,14 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
+import * as path from 'node:path';
 import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as s3assets from 'aws-cdk-lib/aws-s3-assets';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
@@ -16,27 +18,30 @@ type InjectConfig =
   | { type: 'header'; name: string; prefix?: string }
   | { type: 'path' };
 
-const PROVIDER_REGISTRY: Record<string, { envVar: string; inject: InjectConfig }> = {
+// api: matches OpenClaw's --custom-compatibility flag (anthropic | openai | null for non-LLM services)
+type ProviderConfig = { envVar: string; inject: InjectConfig; subdomain: string; api: string | null };
+
+const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
   // LLM providers
-  'api.anthropic.com':                 { envVar: 'ANTHROPIC_API_KEY',  inject: { type: 'header', name: 'x-api-key' } },
-  'api.openai.com':                    { envVar: 'OPENAI_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
-  'generativelanguage.googleapis.com': { envVar: 'GOOGLE_API_KEY',     inject: { type: 'header', name: 'x-goog-api-key' } },
-  'api.mistral.ai':                    { envVar: 'MISTRAL_API_KEY',    inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
-  'api.groq.com':                      { envVar: 'GROQ_API_KEY',       inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
-  'api.x.ai':                          { envVar: 'XAI_API_KEY',        inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
-  'openrouter.ai':                     { envVar: 'OPENROUTER_API_KEY', inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
-  'api.venice.ai':                     { envVar: 'VENICE_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
-  'api.cerebras.ai':                   { envVar: 'CEREBRAS_API_KEY',   inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
+  'api.anthropic.com':                 { envVar: 'ANTHROPIC_API_KEY',  inject: { type: 'header', name: 'x-api-key' },                          subdomain: 'anthropic',  api: 'anthropic' },
+  'api.openai.com':                    { envVar: 'OPENAI_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'openai',     api: 'openai' },
+  'generativelanguage.googleapis.com': { envVar: 'GOOGLE_API_KEY',     inject: { type: 'header', name: 'x-goog-api-key' },                    subdomain: 'google',     api: 'openai' },
+  'api.mistral.ai':                    { envVar: 'MISTRAL_API_KEY',    inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'mistral',    api: 'openai' },
+  'api.groq.com':                      { envVar: 'GROQ_API_KEY',       inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'groq',       api: 'openai' },
+  'api.x.ai':                          { envVar: 'XAI_API_KEY',        inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'xai',        api: 'openai' },
+  'openrouter.ai':                     { envVar: 'OPENROUTER_API_KEY', inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'openrouter', api: 'openai' },
+  'api.venice.ai':                     { envVar: 'VENICE_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'venice',     api: 'openai' },
+  'api.cerebras.ai':                   { envVar: 'CEREBRAS_API_KEY',   inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'cerebras',   api: 'openai' },
   // Search
-  'api.search.brave.com':              { envVar: 'BRAVE_SEARCH_KEY',   inject: { type: 'header', name: 'X-Subscription-Token' } },
-  // Starknet RPC providers (Alchemy, Infura, Blast use API key in URL path -- industry convention)
-  'starknet-mainnet.g.alchemy.com':    { envVar: 'ALCHEMY_API_KEY',    inject: { type: 'path' } },
-  'starknet-mainnet.infura.io':        { envVar: 'INFURA_API_KEY',     inject: { type: 'path' } },
-  'api.cartridge.gg':                  { envVar: 'CARTRIDGE_API_KEY',  inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' } },
-  'data.voyager.online':               { envVar: 'VOYAGER_API_KEY',    inject: { type: 'header', name: 'x-apikey' } },
+  'api.search.brave.com':              { envVar: 'BRAVE_SEARCH_KEY',   inject: { type: 'header', name: 'X-Subscription-Token' },               subdomain: 'brave',      api: null },
+  // Starknet RPC providers (Alchemy, Infura use API key in URL path -- industry convention)
+  'starknet-mainnet.g.alchemy.com':    { envVar: 'ALCHEMY_API_KEY',    inject: { type: 'path' },                                               subdomain: 'alchemy',    api: null },
+  'starknet-mainnet.infura.io':        { envVar: 'INFURA_API_KEY',     inject: { type: 'path' },                                               subdomain: 'infura',     api: null },
+  'api.cartridge.gg':                  { envVar: 'CARTRIDGE_API_KEY',  inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'cartridge',  api: null },
+  'data.voyager.online':               { envVar: 'VOYAGER_API_KEY',    inject: { type: 'header', name: 'x-apikey' },                           subdomain: 'voyager',    api: null },
 };
 
-export { PROVIDER_REGISTRY, InjectConfig };
+export { PROVIDER_REGISTRY, InjectConfig, ProviderConfig };
 
 export class OpenclawStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -92,7 +97,7 @@ export class OpenclawStack extends cdk.Stack {
     });
 
     // --- Per-Provider Secrets + Proxy Config ---
-    const proxyConfig: Record<string, { secretName: string; inject: InjectConfig }> = {};
+    const proxyConfig: Record<string, { backendDomain: string; secretName: string; inject: InjectConfig; api: string | null }> = {};
 
     for (const [domain, config] of Object.entries(PROVIDER_REGISTRY)) {
       const apiKey = process.env[config.envVar];
@@ -106,7 +111,7 @@ export class OpenclawStack extends cdk.Stack {
       });
       secret.grantRead(proxyRole);
 
-      proxyConfig[domain] = { secretName, inject: config.inject };
+      proxyConfig[config.subdomain] = { backendDomain: domain, secretName, inject: config.inject, api: config.api };
     }
 
     // --- SSM Parameter (Proxy Config) ---
@@ -157,6 +162,49 @@ export class OpenclawStack extends cdk.Stack {
       requireImdsv2: true,
     });
 
+    // --- Proxy Application (S3 Asset + User Data) ---
+    const proxyAsset = new s3assets.Asset(this, 'ProxyAsset', {
+      path: path.join(__dirname, '..', 'proxy'),
+      exclude: ['node_modules', 'dist'],
+    });
+    proxyAsset.grantRead(proxyRole);
+
+    const proxyZipPath = proxyInstance.userData.addS3DownloadCommand({
+      bucket: proxyAsset.bucket,
+      bucketKey: proxyAsset.s3ObjectKey,
+    });
+
+    proxyInstance.addUserData(
+      // Install Node.js and unzip
+      'dnf install -y nodejs npm unzip',
+      // Unpack proxy source
+      `mkdir -p /opt/proxy && cd /opt/proxy && unzip -o ${proxyZipPath}`,
+      // Install dependencies and compile TypeScript
+      'cd /opt/proxy && npm install && npx tsc',
+      // Create systemd service
+      [
+        'cat > /etc/systemd/system/openclaw-proxy.service << EOF',
+        '[Unit]',
+        'Description=OpenClaw LLM Proxy',
+        'After=network.target',
+        '',
+        '[Service]',
+        'Type=simple',
+        'WorkingDirectory=/opt/proxy',
+        'ExecStart=/usr/bin/node /opt/proxy/dist/index.js',
+        'Restart=on-failure',
+        'RestartSec=5',
+        'Environment=NODE_ENV=production',
+        '',
+        '[Install]',
+        'WantedBy=multi-user.target',
+        'EOF',
+      ].join('\n'),
+      'systemctl daemon-reload',
+      'systemctl enable openclaw-proxy',
+      'systemctl start openclaw-proxy',
+    );
+
     // --- Private DNS (proxy.vpc) ---
     const hostedZone = new route53.PrivateHostedZone(this, 'InternalZone', {
       zoneName: 'vpc',
@@ -168,6 +216,17 @@ export class OpenclawStack extends cdk.Stack {
       recordName: 'proxy',
       target: route53.RecordTarget.fromIpAddresses(proxyInstance.instancePrivateIp),
     });
+
+    // Per-provider subdomains (only for configured providers)
+    for (const [, config] of Object.entries(PROVIDER_REGISTRY)) {
+      if (!process.env[config.envVar]) continue;
+
+      new route53.ARecord(this, `Dns-${config.subdomain}`, {
+        zone: hostedZone,
+        recordName: `${config.subdomain}.proxy`,
+        target: route53.RecordTarget.fromIpAddresses(proxyInstance.instancePrivateIp),
+      });
+    }
 
     // --- Stack Outputs ---
     new cdk.CfnOutput(this, 'AgentInstanceId', {

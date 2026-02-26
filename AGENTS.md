@@ -32,3 +32,4 @@ Secure AWS infrastructure for an OpenClaw agent, defined using AWS CDK in TypeSc
 * The KMS wallet key has `removalPolicy: DESTROY` — see the tear down warning in README.md
 * The `.env` file must never be committed (it's in `.gitignore`)
 * AWS resource descriptions must use ASCII-only characters (no em dashes, special characters)
+* When researching GitHub repos, prefer `gh search code` over `gh api` — search is read-only and auto-approved, while `gh api` can write and should require user confirmation
