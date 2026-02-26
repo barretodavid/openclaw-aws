@@ -1,6 +1,8 @@
 import * as cdk from 'aws-cdk-lib/core';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack, PROVIDER_REGISTRY } from '../lib/openclaw-stack';
+import { AgentOsFamily } from '../lib/agent-machine-config';
 
 let template: Template;
 
@@ -191,7 +193,7 @@ describe('Resource Configuration', () => {
     expect(imdsv2Templates).toHaveLength(2);
   });
 
-  test('Agent EC2 is t4g.large', () => {
+  test('Agent EC2 defaults to t4g.large', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't4g.large',
     });
@@ -203,7 +205,7 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('Agent EC2 user data installs Docker', () => {
+  test('Agent EC2 user data installs Docker (default: Amazon Linux 2023 with dnf)', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let foundDockerUserData = false;
 
@@ -330,5 +332,110 @@ describe('Resource Counts', () => {
   test('one base + one per-provider DNS A record', () => {
     // 1 base (proxy.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
     template.resourceCountIs('AWS::Route53::RecordSet', 1 + Object.keys(MOCK_ENV_VARS).length);
+  });
+});
+
+// --- Agent Machine Configuration Tests ---
+
+function createStackWithConfig(agentMachine: { instanceType?: ec2.InstanceType; osFamily?: AgentOsFamily }): Template {
+  const app = new cdk.App();
+  app.node.setContext('vpc-provider:account=123456789012:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true', {
+    vpcId: 'vpc-12345',
+    vpcCidrBlock: '10.0.0.0/16',
+    ownerAccountId: '123456789012',
+    availabilityZones: ['us-east-1a', 'us-east-1b'],
+    subnetGroups: [
+      {
+        name: 'Public',
+        type: 'Public',
+        subnets: [
+          { subnetId: 'subnet-1', cidr: '10.0.0.0/24', availabilityZone: 'us-east-1a', routeTableId: 'rtb-1' },
+          { subnetId: 'subnet-2', cidr: '10.0.1.0/24', availabilityZone: 'us-east-1b', routeTableId: 'rtb-2' },
+        ],
+      },
+    ],
+  });
+
+  const stack = new OpenclawStack(app, 'TestStack', {
+    env: { account: '123456789012', region: 'us-east-1' },
+    agentMachine,
+  });
+
+  return Template.fromStack(stack);
+}
+
+function getAgentUserData(tmpl: Template, instanceType: string): string {
+  const instances = tmpl.findResources('AWS::EC2::Instance');
+  for (const [, instance] of Object.entries(instances)) {
+    if (instance.Properties?.InstanceType === instanceType) {
+      return JSON.stringify(instance.Properties?.UserData);
+    }
+  }
+  throw new Error(`No instance found with type ${instanceType}`);
+}
+
+describe('Agent Machine Configuration', () => {
+  test('Ubuntu 24.04 uses apt-get and Docker CE', () => {
+    const tmpl = createStackWithConfig({ osFamily: AgentOsFamily.UBUNTU_24_04 });
+    const userData = getAgentUserData(tmpl, 't4g.large');
+
+    expect(userData).toContain('apt-get update -y');
+    expect(userData).toContain('deb.nodesource.com/setup_22.x');
+    expect(userData).toContain('apt-get install -y docker.io nodejs');
+    expect(userData).toContain('usermod -aG docker ubuntu');
+  });
+
+  test('Amazon Linux 2 uses yum', () => {
+    const tmpl = createStackWithConfig({ osFamily: AgentOsFamily.AMAZON_LINUX_2 });
+    const userData = getAgentUserData(tmpl, 't4g.large');
+
+    expect(userData).toContain('yum update -y');
+    expect(userData).toContain('rpm.nodesource.com/setup_22.x');
+    expect(userData).toContain('yum install -y docker nodejs');
+    expect(userData).toContain('usermod -aG docker ec2-user');
+  });
+
+  test('x86 instance type produces correct instance type in template', () => {
+    const tmpl = createStackWithConfig({
+      instanceType: new ec2.InstanceType('t3.large'),
+      osFamily: AgentOsFamily.AMAZON_LINUX_2023,
+    });
+
+    tmpl.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't3.large',
+    });
+
+    const userData = getAgentUserData(tmpl, 't3.large');
+    expect(userData).toContain('dnf install -y docker');
+  });
+
+  test('Ubuntu 24.04 uses /dev/sda1 root device', () => {
+    const tmpl = createStackWithConfig({ osFamily: AgentOsFamily.UBUNTU_24_04 });
+
+    tmpl.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't4g.large',
+      BlockDeviceMappings: Match.arrayWith([
+        Match.objectLike({
+          DeviceName: '/dev/sda1',
+          Ebs: { VolumeSize: 30, VolumeType: 'gp3' },
+        }),
+      ]),
+    });
+  });
+
+  test('Proxy instance is always Amazon Linux 2023 ARM regardless of agent config', () => {
+    const tmpl = createStackWithConfig({
+      instanceType: new ec2.InstanceType('t3.xlarge'),
+      osFamily: AgentOsFamily.UBUNTU_24_04,
+    });
+
+    // Proxy is still t4g.nano
+    tmpl.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't4g.nano',
+    });
+
+    const proxyUserData = getAgentUserData(tmpl, 't4g.nano');
+    expect(proxyUserData).toContain('dnf install -y nodejs');
+    expect(proxyUserData).toContain('npm install -g openclaw-aws-proxy');
   });
 });

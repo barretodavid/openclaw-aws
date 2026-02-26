@@ -11,7 +11,7 @@ graph LR
     Laptop -->|"SSM Session Manager"| AgentEC2
     Laptop -->|"SSM Session Manager"| ProxyEC2
     subgraph VPC ["Default VPC — public subnets"]
-        AgentEC2["Agent Server<br/>(EC2 t4g.large)"]
+        AgentEC2["Agent Server<br/>(EC2, configurable)"]
         ProxyEC2["LLM Proxy<br/>(EC2 t4g.nano)"]
         AgentEC2 -->|"LLM request<br/>(fake API key)"| ProxyEC2
     end
@@ -26,7 +26,7 @@ graph LR
 
 | Component | AWS Service | Purpose | Why this service |
 |---|---|---|---|
-| Agent Server | EC2 (t4g.large, 30 GB EBS, Amazon Linux 2023) | Runs OpenClaw + agents | Long-running process needs a persistent server; t4g.large balances cost and performance for agent workloads; Amazon Linux 2023 includes SSM agent pre-installed |
+| Agent Server | EC2 (configurable, default t4g.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type and OS are configurable in `packages/cdk/bin/openclaw.ts` |
 | LLM Proxy | EC2 (t4g.nano, Amazon Linux 2023) | Swaps fake API key for real key, streams LLM responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; Amazon Linux 2023 includes SSM agent pre-installed |
 | Remote Access | SSM Session Manager | Shell access to both EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing — private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
@@ -123,6 +123,27 @@ Edit `.env` and set your LLM API key:
 ```
 LLM_API_KEY=your-actual-api-key
 ```
+
+## Customize the Agent Instance
+
+Edit `packages/cdk/bin/openclaw.ts` to change the agent's instance type or operating system:
+
+```typescript
+agentMachine: {
+  instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.XLARGE),
+  osFamily: AgentOsFamily.UBUNTU_24_04,
+},
+```
+
+Supported OS families:
+
+| OS Family | Enum Value | Package Manager |
+|---|---|---|
+| Amazon Linux 2023 (default) | `AMAZON_LINUX_2023` | dnf |
+| Amazon Linux 2 | `AMAZON_LINUX_2` | yum |
+| Ubuntu 24.04 LTS | `UBUNTU_24_04` | apt |
+
+Architecture (ARM64 vs x86_64) is auto-detected from the instance type. ARM instances like t4g/m7g use ARM64 AMIs, x86 instances like t3/m5 use x86_64 AMIs. Node.js 22, Docker, and SSM Agent are installed automatically for all supported OS families.
 
 ## Deploy
 

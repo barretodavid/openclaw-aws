@@ -10,6 +10,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
+import { AgentMachineConfig, AgentOsFamily, resolveAgentMachine } from './agent-machine-config';
 
 const PROXY_PORT = 8080;
 const AVAILABILITY_ZONE = 'ca-central-1b';
@@ -43,8 +44,17 @@ const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
 
 export { PROVIDER_REGISTRY, InjectConfig, ProviderConfig };
 
+export interface OpenclawStackProps extends cdk.StackProps {
+  /**
+   * Agent EC2 machine configuration.
+   * Controls instance type and operating system.
+   * @default - t4g.large with Amazon Linux 2023
+   */
+  readonly agentMachine?: AgentMachineConfig;
+}
+
 export class OpenclawStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: OpenclawStackProps) {
     super(scope, id, props);
 
     // --- KMS Key (Wallet) ---
@@ -123,20 +133,26 @@ export class OpenclawStack extends cdk.Stack {
     proxyConfigParam.grantRead(proxyRole);
 
     // --- EC2 Instances ---
-    const amazonLinux2023Arm = ec2.MachineImage.latestAmazonLinux2023({
-      cpuType: ec2.AmazonLinuxCpuType.ARM_64,
-    });
+
+    // Resolve agent machine config (instance type, OS, user data)
+    const agentInstanceType = props?.agentMachine?.instanceType
+      ?? ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE);
+    const agentOsFamily = props?.agentMachine?.osFamily ?? AgentOsFamily.AMAZON_LINUX_2023;
+    const cpuType = agentInstanceType.architecture === ec2.InstanceArchitecture.ARM_64
+      ? ec2.AmazonLinuxCpuType.ARM_64
+      : ec2.AmazonLinuxCpuType.X86_64;
+    const agentMachine = resolveAgentMachine(agentOsFamily, cpuType);
 
     const agentInstance = new ec2.Instance(this, 'AgentInstance', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [AVAILABILITY_ZONE] },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE),
-      machineImage: amazonLinux2023Arm,
+      instanceType: agentInstanceType,
+      machineImage: agentMachine.machineImage,
       securityGroup: agentSg,
       role: agentRole,
       blockDevices: [
         {
-          deviceName: '/dev/xvda',
+          deviceName: agentMachine.rootDeviceName,
           volume: ec2.BlockDeviceVolume.ebs(30, { volumeType: ec2.EbsDeviceVolumeType.GP3 }),
         },
       ],
@@ -145,13 +161,13 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- Docker + Node.js on Agent ---
     agentInstance.addUserData(
-      'dnf update -y',
-      'curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
-      'dnf install -y docker nodejs',
-      'systemctl enable docker',
-      'systemctl start docker',
-      'usermod -aG docker ec2-user',
+      ...agentMachine.userDataCommands,
+      `usermod -aG docker ${agentMachine.defaultUser}`,
     );
+
+    const amazonLinux2023Arm = ec2.MachineImage.latestAmazonLinux2023({
+      cpuType: ec2.AmazonLinuxCpuType.ARM_64,
+    });
 
     const proxyInstance = new ec2.Instance(this, 'ProxyInstance', {
       vpc,
