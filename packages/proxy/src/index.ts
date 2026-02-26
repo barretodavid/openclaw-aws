@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import * as http from 'node:http';
 import { loadConfig } from './config.js';
 import { createHandler } from './handler.js';

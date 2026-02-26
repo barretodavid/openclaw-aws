@@ -1,26 +1,12 @@
 {
   "name": "openclaw",
-  "version": "0.1.0",
-  "bin": {
-    "openclaw": "bin/openclaw.js"
-  },
+  "private": true,
   "scripts": {
-    "typecheck": "tsc",
-    "test": "jest",
-    "cdk": "cdk"
-  },
-  "devDependencies": {
-    "@types/jest": "^30",
-    "@types/node": "^24.10.1",
-    "aws-cdk": "2.1107.0",
-    "jest": "^30",
-    "ts-jest": "^29",
-    "ts-node": "^10.9.2",
-    "typescript": "~5.9.3"
-  },
-  "dependencies": {
-    "aws-cdk-lib": "^2.239.0",
-    "constructs": "^10.5.0",
-    "dotenv": "^17.3.1"
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "deploy": "pnpm --filter openclaw-cdk run deploy",
+    "synth": "pnpm --filter openclaw-cdk run synth",
+    "destroy": "pnpm --filter openclaw-cdk run destroy",
+    "publish:proxy": "pnpm --filter openclaw-aws-proxy publish"
   }
 }

@@ -1,11 +1,11 @@
 import * as http from 'node:http';
 import * as https from 'node:https';
-import { createHandler } from '../proxy/src/handler.js';
-import type { ProxyConfig, ProviderEntry } from '../proxy/src/config.js';
+import { createHandler } from '../src/handler.js';
+import type { ProxyConfig, ProviderEntry } from '../src/config.js';
 
 // Mock getApiKey so we don't hit real AWS
-jest.mock('../proxy/src/config.js', () => ({
-  ...jest.requireActual('../proxy/src/config.js'),
+jest.mock('../src/config.js', () => ({
+  ...jest.requireActual('../src/config.js'),
   getApiKey: jest.fn().mockResolvedValue('real-secret-key'),
 }));
 

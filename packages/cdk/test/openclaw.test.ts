@@ -229,8 +229,7 @@ describe('Resource Configuration', () => {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
         expect(userDataStr).toContain('nodesource.com/setup_22.x');
         expect(userDataStr).toContain('dnf install -y nodejs');
-        expect(userDataStr).toContain('npm install');
-        expect(userDataStr).toContain('npx tsc');
+        expect(userDataStr).toContain('npm install -g openclaw-aws-proxy');
         expect(userDataStr).toContain('systemctl enable openclaw-proxy');
         expect(userDataStr).toContain('systemctl start openclaw-proxy');
         foundProxyUserData = true;

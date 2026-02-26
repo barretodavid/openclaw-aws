@@ -1,14 +1,13 @@
 import * as dotenv from 'dotenv';
-dotenv.config();
-
 import * as path from 'node:path';
+dotenv.config({ path: path.join(__dirname, '..', '..', '..', '.env') });
+
 import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
-import * as s3assets from 'aws-cdk-lib/aws-s3-assets';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
@@ -164,27 +163,13 @@ export class OpenclawStack extends cdk.Stack {
       requireImdsv2: true,
     });
 
-    // --- Proxy Application (S3 Asset + User Data) ---
-    const proxyAsset = new s3assets.Asset(this, 'ProxyAsset', {
-      path: path.join(__dirname, '..', 'proxy'),
-      exclude: ['node_modules', 'dist'],
-    });
-    proxyAsset.grantRead(proxyRole);
-
-    const proxyZipPath = proxyInstance.userData.addS3DownloadCommand({
-      bucket: proxyAsset.bucket,
-      bucketKey: proxyAsset.s3ObjectKey,
-    });
-
+    // --- Proxy Application (installed from npm) ---
     proxyInstance.addUserData(
-      // Install Node.js 22 LTS via NodeSource and unzip
-      'dnf install -y unzip',
+      // Install Node.js 22 LTS via NodeSource
       'curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
       'dnf install -y nodejs',
-      // Unpack proxy source
-      `mkdir -p /opt/proxy && cd /opt/proxy && unzip -o ${proxyZipPath}`,
-      // Install dependencies and compile TypeScript
-      'cd /opt/proxy && npm install --include=dev && npx tsc',
+      // Install proxy from npm (global)
+      'npm install -g openclaw-aws-proxy',
       // Create systemd service
       [
         'cat > /etc/systemd/system/openclaw-proxy.service << EOF',
@@ -194,8 +179,7 @@ export class OpenclawStack extends cdk.Stack {
         '',
         '[Service]',
         'Type=simple',
-        'WorkingDirectory=/opt/proxy',
-        'ExecStart=/usr/bin/node /opt/proxy/dist/index.js',
+        'ExecStart=/usr/bin/openclaw-aws-proxy',
         'Restart=on-failure',
         'RestartSec=5',
         'Environment=NODE_ENV=production',
