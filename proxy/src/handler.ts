@@ -119,9 +119,9 @@ export function createHandler(config: ProxyConfig): http.RequestListener {
       }
     });
 
-    // If the client disconnects, abort the backend request
+    // If the client disconnects before sending the full body, abort the backend request
     req.on('close', () => {
-      if (!backendReq.destroyed) backendReq.destroy();
+      if (!req.complete && !backendReq.destroyed) backendReq.destroy();
     });
 
     // Pipe the agent's request body to the backend

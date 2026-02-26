@@ -13,6 +13,7 @@ import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
 
 const PROXY_PORT = 8080;
+const AVAILABILITY_ZONE = 'ca-central-1b';
 
 type InjectConfig =
   | { type: 'header'; name: string; prefix?: string }
@@ -129,7 +130,7 @@ export class OpenclawStack extends cdk.Stack {
 
     const agentInstance = new ec2.Instance(this, 'AgentInstance', {
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [AVAILABILITY_ZONE] },
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE),
       machineImage: amazonLinux2023Arm,
       securityGroup: agentSg,
@@ -143,10 +144,11 @@ export class OpenclawStack extends cdk.Stack {
       requireImdsv2: true,
     });
 
-    // --- Docker on Agent ---
+    // --- Docker + Node.js on Agent ---
     agentInstance.addUserData(
       'dnf update -y',
-      'dnf install -y docker',
+      'curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
+      'dnf install -y docker nodejs',
       'systemctl enable docker',
       'systemctl start docker',
       'usermod -aG docker ec2-user',
@@ -154,7 +156,7 @@ export class OpenclawStack extends cdk.Stack {
 
     const proxyInstance = new ec2.Instance(this, 'ProxyInstance', {
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [AVAILABILITY_ZONE] },
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
       machineImage: amazonLinux2023Arm,
       securityGroup: proxySg,
@@ -175,12 +177,14 @@ export class OpenclawStack extends cdk.Stack {
     });
 
     proxyInstance.addUserData(
-      // Install Node.js and unzip
-      'dnf install -y nodejs npm unzip',
+      // Install Node.js 22 LTS via NodeSource and unzip
+      'dnf install -y unzip',
+      'curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
+      'dnf install -y nodejs',
       // Unpack proxy source
       `mkdir -p /opt/proxy && cd /opt/proxy && unzip -o ${proxyZipPath}`,
       // Install dependencies and compile TypeScript
-      'cd /opt/proxy && npm install && npx tsc',
+      'cd /opt/proxy && npm install --include=dev && npx tsc',
       // Create systemd service
       [
         'cat > /etc/systemd/system/openclaw-proxy.service << EOF',
@@ -195,6 +199,7 @@ export class OpenclawStack extends cdk.Stack {
         'Restart=on-failure',
         'RestartSec=5',
         'Environment=NODE_ENV=production',
+        `Environment=AWS_REGION=${this.region}`,
         '',
         '[Install]',
         'WantedBy=multi-user.target',
