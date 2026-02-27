@@ -1,4 +1,5 @@
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import { ubuntuBaseUserData } from './utils';
 
 /** Configuration for the agent EC2 instance. */
 export interface AgentMachineConfig {
@@ -32,25 +33,9 @@ export function resolveAgentMachine(
       { os: ec2.OperatingSystemType.LINUX },
     ),
     userDataCommands: [
-      'apt-get update -y',
-      'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -',
-      'apt-get install -y docker.io nodejs unattended-upgrades',
+      ...ubuntuBaseUserData(['docker.io']),
       'systemctl enable docker',
       'systemctl start docker',
-      // Automatic daily security upgrades with reboot at 03:00 UTC when needed
-      [
-        "cat > /etc/apt/apt.conf.d/20auto-upgrades << 'EOF'",
-        'APT::Periodic::Update-Package-Lists "1";',
-        'APT::Periodic::Unattended-Upgrade "1";',
-        'EOF',
-      ].join('\n'),
-      [
-        "cat > /etc/apt/apt.conf.d/52unattended-upgrades-local << 'EOF'",
-        'Unattended-Upgrade::Automatic-Reboot "true";',
-        'Unattended-Upgrade::Automatic-Reboot-Time "03:00";',
-        'EOF',
-      ].join('\n'),
-      'systemctl enable unattended-upgrades',
     ],
     defaultUser: 'ubuntu',
     rootDeviceName: '/dev/sda1',
