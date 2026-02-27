@@ -24,7 +24,7 @@ Secure AWS infrastructure for an OpenClaw agent, defined using AWS CDK in TypeSc
 
 * `bin/openclaw.ts` — CDK app entry point
 * `lib/openclaw-stack.ts` — single stack defining all infrastructure
-* `.env` / `.env.example` — LLM API key configuration
+* `.env` / `.env.example` — per-provider API key configuration
 
 ## Key Conventions
 
