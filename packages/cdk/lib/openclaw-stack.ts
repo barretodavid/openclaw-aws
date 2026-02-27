@@ -10,7 +10,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
-import { AgentMachineConfig, AgentOsFamily, resolveAgentMachine } from './agent-machine-config';
+import { AgentMachineConfig, resolveAgentMachine } from './agent-machine-config';
 
 const PROXY_PORT = 8080;
 const AVAILABILITY_ZONE = 'ca-central-1b';
@@ -48,7 +48,7 @@ export interface OpenclawStackProps extends cdk.StackProps {
   /**
    * Agent EC2 machine configuration.
    * Controls instance type and operating system.
-   * @default - t4g.large with Ubuntu 24.04 LTS
+   * @default - t4g.large
    */
   readonly agentMachine?: AgentMachineConfig;
 }
@@ -138,11 +138,10 @@ export class OpenclawStack extends cdk.Stack {
     // Resolve agent machine config (instance type, OS, user data)
     const agentInstanceType = props?.agentMachine?.instanceType
       ?? ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE);
-    const agentOsFamily = props?.agentMachine?.osFamily ?? AgentOsFamily.UBUNTU_24_04;
     const cpuType = agentInstanceType.architecture === ec2.InstanceArchitecture.ARM_64
       ? ec2.AmazonLinuxCpuType.ARM_64
       : ec2.AmazonLinuxCpuType.X86_64;
-    const agentMachine = resolveAgentMachine(agentOsFamily, cpuType);
+    const agentMachine = resolveAgentMachine(cpuType);
 
     const agentInstance = new ec2.Instance(this, 'AgentInstance', {
       vpc,

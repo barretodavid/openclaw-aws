@@ -2,7 +2,6 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack, PROVIDER_REGISTRY } from '../lib/openclaw-stack';
-import { AgentOsFamily } from '../lib/agent-machine-config';
 
 let template: Template;
 
@@ -205,7 +204,7 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('Agent EC2 user data installs Docker (default: Ubuntu 24.04 with apt)', () => {
+  test('Agent EC2 user data installs Docker and Node.js via apt', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let foundDockerUserData = false;
 
@@ -337,7 +336,7 @@ describe('Resource Counts', () => {
 
 // --- Agent Machine Configuration Tests ---
 
-function createStackWithConfig(agentMachine: { instanceType?: ec2.InstanceType; osFamily?: AgentOsFamily }): Template {
+function createStackWithConfig(agentMachine: { instanceType?: ec2.InstanceType }): Template {
   const app = new cdk.App();
   app.node.setContext('vpc-provider:account=123456789012:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true', {
     vpcId: 'vpc-12345',
@@ -375,8 +374,8 @@ function getAgentUserData(tmpl: Template, instanceType: string): string {
 }
 
 describe('Agent Machine Configuration', () => {
-  test('Ubuntu 24.04 uses apt-get and Docker CE', () => {
-    const tmpl = createStackWithConfig({ osFamily: AgentOsFamily.UBUNTU_24_04 });
+  test('default config uses apt-get, Docker, and ubuntu user', () => {
+    const tmpl = createStackWithConfig({});
     const userData = getAgentUserData(tmpl, 't4g.large');
 
     expect(userData).toContain('apt-get update -y');
@@ -385,20 +384,9 @@ describe('Agent Machine Configuration', () => {
     expect(userData).toContain('usermod -aG docker ubuntu');
   });
 
-  test('Amazon Linux 2 uses yum', () => {
-    const tmpl = createStackWithConfig({ osFamily: AgentOsFamily.AMAZON_LINUX_2 });
-    const userData = getAgentUserData(tmpl, 't4g.large');
-
-    expect(userData).toContain('yum update -y');
-    expect(userData).toContain('rpm.nodesource.com/setup_22.x');
-    expect(userData).toContain('yum install -y docker nodejs');
-    expect(userData).toContain('usermod -aG docker ec2-user');
-  });
-
   test('x86 instance type produces correct instance type in template', () => {
     const tmpl = createStackWithConfig({
       instanceType: new ec2.InstanceType('t3.large'),
-      osFamily: AgentOsFamily.AMAZON_LINUX_2023,
     });
 
     tmpl.hasResourceProperties('AWS::EC2::Instance', {
@@ -406,11 +394,11 @@ describe('Agent Machine Configuration', () => {
     });
 
     const userData = getAgentUserData(tmpl, 't3.large');
-    expect(userData).toContain('dnf install -y docker');
+    expect(userData).toContain('apt-get install -y docker.io nodejs');
   });
 
-  test('Ubuntu 24.04 uses /dev/sda1 root device', () => {
-    const tmpl = createStackWithConfig({ osFamily: AgentOsFamily.UBUNTU_24_04 });
+  test('Agent EC2 uses /dev/sda1 root device', () => {
+    const tmpl = createStackWithConfig({});
 
     tmpl.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't4g.large',
@@ -423,10 +411,9 @@ describe('Agent Machine Configuration', () => {
     });
   });
 
-  test('Proxy instance is always Ubuntu 24.04 ARM regardless of agent config', () => {
+  test('Proxy instance is always Ubuntu 24.04 ARM regardless of agent instance type', () => {
     const tmpl = createStackWithConfig({
       instanceType: new ec2.InstanceType('t3.xlarge'),
-      osFamily: AgentOsFamily.AMAZON_LINUX_2023,
     });
 
     // Proxy is still t4g.nano

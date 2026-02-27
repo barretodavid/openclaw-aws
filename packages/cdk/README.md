@@ -6,7 +6,7 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 
 | Component | AWS Service | Purpose | Why this service |
 |---|---|---|---|
-| Agent Server | EC2 (configurable, default t4g.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type and OS are configurable in `bin/openclaw.ts` |
+| Agent Server | EC2 (configurable, default t4g.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type is configurable in `bin/openclaw.ts` |
 | API Proxy | EC2 (t4g.nano, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
 | Remote Access | SSM Session Manager | Shell access to both EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
@@ -38,24 +38,15 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 
 ## Customize the Agent Instance
 
-Edit `bin/openclaw.ts` to change the agent's instance type or operating system:
+Edit `bin/openclaw.ts` to change the agent's instance type:
 
 ```typescript
 agentMachine: {
   instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.XLARGE),
-  osFamily: AgentOsFamily.UBUNTU_24_04,
 },
 ```
 
-Supported OS families:
-
-| OS Family | Enum Value | Package Manager |
-|---|---|---|
-| Ubuntu 24.04 LTS (default) | `UBUNTU_24_04` | apt |
-| Amazon Linux 2023 | `AMAZON_LINUX_2023` | dnf |
-| Amazon Linux 2 | `AMAZON_LINUX_2` | yum |
-
-Architecture (ARM64 vs x86_64) is auto-detected from the instance type. ARM instances like t4g/m7g use ARM64 AMIs, x86 instances like t3/m5 use x86_64 AMIs. Node.js 22, Docker, and SSM Agent are installed automatically for all supported OS families.
+Architecture (ARM64 vs x86_64) is auto-detected from the instance type. ARM instances like t4g/m7g use ARM64 AMIs, x86 instances like t3/m5 use x86_64 AMIs. Both instances run Ubuntu 24.04 LTS with Node.js 22, Docker, and SSM Agent installed automatically.
 
 Both EC2 instances run `unattended-upgrades` for automatic daily security updates. If a kernel update requires a reboot, instances reboot automatically at 03:00 UTC.
 
