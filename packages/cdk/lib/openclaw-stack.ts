@@ -76,6 +76,7 @@ export class OpenclawStack extends cdk.Stack {
       allowAllOutbound: false,
     });
     agentSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS');
+    agentSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
 
     const proxySg = new ec2.SecurityGroup(this, 'ProxySg', {
       vpc,
