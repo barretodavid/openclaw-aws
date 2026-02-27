@@ -7,7 +7,7 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 | Component | AWS Service | Purpose | Why this service |
 |---|---|---|---|
 | Agent Server | EC2 (configurable, default t4g.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type and OS are configurable in `bin/openclaw.ts` |
-| API Proxy | EC2 (t4g.nano, Amazon Linux 2023) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
+| API Proxy | EC2 (t4g.nano, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
 | Remote Access | SSM Session Manager | Shell access to both EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
 | Provider API Keys | Secrets Manager (one secret per provider) | Stores the real API key for each configured provider (e.g. `openclaw/anthropic-api-key`) | Encrypted at rest, fine-grained IAM access, supports rotation; only the Proxy EC2 can read them |

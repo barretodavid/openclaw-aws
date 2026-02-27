@@ -19,7 +19,7 @@ export interface AgentMachineConfig {
   /**
    * Operating system for the agent EC2 instance.
    * The AMI and user data scripts are selected automatically.
-   * @default AgentOsFamily.AMAZON_LINUX_2023
+   * @default AgentOsFamily.UBUNTU_24_04
    */
   readonly osFamily?: AgentOsFamily;
 }

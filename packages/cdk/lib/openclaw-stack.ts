@@ -48,7 +48,7 @@ export interface OpenclawStackProps extends cdk.StackProps {
   /**
    * Agent EC2 machine configuration.
    * Controls instance type and operating system.
-   * @default - t4g.large with Amazon Linux 2023
+   * @default - t4g.large with Ubuntu 24.04 LTS
    */
   readonly agentMachine?: AgentMachineConfig;
 }
@@ -138,7 +138,7 @@ export class OpenclawStack extends cdk.Stack {
     // Resolve agent machine config (instance type, OS, user data)
     const agentInstanceType = props?.agentMachine?.instanceType
       ?? ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE);
-    const agentOsFamily = props?.agentMachine?.osFamily ?? AgentOsFamily.AMAZON_LINUX_2023;
+    const agentOsFamily = props?.agentMachine?.osFamily ?? AgentOsFamily.UBUNTU_24_04;
     const cpuType = agentInstanceType.architecture === ec2.InstanceArchitecture.ARM_64
       ? ec2.AmazonLinuxCpuType.ARM_64
       : ec2.AmazonLinuxCpuType.X86_64;
@@ -166,15 +166,16 @@ export class OpenclawStack extends cdk.Stack {
       `usermod -aG docker ${agentMachine.defaultUser}`,
     );
 
-    const amazonLinux2023Arm = ec2.MachineImage.latestAmazonLinux2023({
-      cpuType: ec2.AmazonLinuxCpuType.ARM_64,
-    });
+    const proxyUbuntu = ec2.MachineImage.fromSsmParameter(
+      '/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id',
+      { os: ec2.OperatingSystemType.LINUX },
+    );
 
     const proxyInstance = new ec2.Instance(this, 'ProxyInstance', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [AVAILABILITY_ZONE] },
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
-      machineImage: amazonLinux2023Arm,
+      machineImage: proxyUbuntu,
       securityGroup: proxySg,
       role: proxyRole,
       requireImdsv2: true,
@@ -183,8 +184,9 @@ export class OpenclawStack extends cdk.Stack {
     // --- Proxy Application (installed from npm) ---
     proxyInstance.addUserData(
       // Install Node.js 22 LTS via NodeSource
-      'curl -fsSL https://rpm.nodesource.com/setup_22.x | bash -',
-      'dnf install -y nodejs',
+      'apt-get update -y',
+      'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -',
+      'apt-get install -y nodejs',
       // Install proxy from npm (global)
       'npm install -g openclaw-aws-proxy',
       // Create systemd service

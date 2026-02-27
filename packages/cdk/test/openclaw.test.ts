@@ -205,14 +205,14 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('Agent EC2 user data installs Docker (default: Amazon Linux 2023 with dnf)', () => {
+  test('Agent EC2 user data installs Docker (default: Ubuntu 24.04 with apt)', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let foundDockerUserData = false;
 
     for (const [, instance] of Object.entries(instances)) {
       if (instance.Properties?.InstanceType === 't4g.large') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('dnf install -y docker');
+        expect(userDataStr).toContain('apt-get install -y docker.io nodejs');
         expect(userDataStr).toContain('systemctl enable docker');
         expect(userDataStr).toContain('systemctl start docker');
         foundDockerUserData = true;
@@ -229,8 +229,8 @@ describe('Resource Configuration', () => {
     for (const [, instance] of Object.entries(instances)) {
       if (instance.Properties?.InstanceType === 't4g.nano') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('nodesource.com/setup_22.x');
-        expect(userDataStr).toContain('dnf install -y nodejs');
+        expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
+        expect(userDataStr).toContain('apt-get install -y nodejs');
         expect(userDataStr).toContain('npm install -g openclaw-aws-proxy');
         expect(userDataStr).toContain('systemctl enable openclaw-proxy');
         expect(userDataStr).toContain('systemctl start openclaw-proxy');
@@ -423,10 +423,10 @@ describe('Agent Machine Configuration', () => {
     });
   });
 
-  test('Proxy instance is always Amazon Linux 2023 ARM regardless of agent config', () => {
+  test('Proxy instance is always Ubuntu 24.04 ARM regardless of agent config', () => {
     const tmpl = createStackWithConfig({
       instanceType: new ec2.InstanceType('t3.xlarge'),
-      osFamily: AgentOsFamily.UBUNTU_24_04,
+      osFamily: AgentOsFamily.AMAZON_LINUX_2023,
     });
 
     // Proxy is still t4g.nano
@@ -435,7 +435,7 @@ describe('Agent Machine Configuration', () => {
     });
 
     const proxyUserData = getAgentUserData(tmpl, 't4g.nano');
-    expect(proxyUserData).toContain('dnf install -y nodejs');
+    expect(proxyUserData).toContain('apt-get install -y nodejs');
     expect(proxyUserData).toContain('npm install -g openclaw-aws-proxy');
   });
 });
