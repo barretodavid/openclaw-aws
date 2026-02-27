@@ -57,6 +57,8 @@ Supported OS families:
 
 Architecture (ARM64 vs x86_64) is auto-detected from the instance type. ARM instances like t4g/m7g use ARM64 AMIs, x86 instances like t3/m5 use x86_64 AMIs. Node.js 22, Docker, and SSM Agent are installed automatically for all supported OS families.
 
+Both EC2 instances run `unattended-upgrades` for automatic daily security updates. If a kernel update requires a reboot, instances reboot automatically at 03:00 UTC.
+
 ## Supported providers
 
 The proxy supports the following providers. Only providers with an API key set in `.env` are deployed (secret + DNS record + proxy config entry):

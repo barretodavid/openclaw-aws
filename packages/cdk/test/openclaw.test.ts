@@ -212,7 +212,7 @@ describe('Resource Configuration', () => {
     for (const [, instance] of Object.entries(instances)) {
       if (instance.Properties?.InstanceType === 't4g.large') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('apt-get install -y docker.io nodejs');
+        expect(userDataStr).toContain('apt-get install -y docker.io nodejs unattended-upgrades');
         expect(userDataStr).toContain('systemctl enable docker');
         expect(userDataStr).toContain('systemctl start docker');
         foundDockerUserData = true;
@@ -230,7 +230,7 @@ describe('Resource Configuration', () => {
       if (instance.Properties?.InstanceType === 't4g.nano') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
         expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
-        expect(userDataStr).toContain('apt-get install -y nodejs');
+        expect(userDataStr).toContain('apt-get install -y nodejs unattended-upgrades');
         expect(userDataStr).toContain('npm install -g openclaw-aws-proxy');
         expect(userDataStr).toContain('systemctl enable openclaw-proxy');
         expect(userDataStr).toContain('systemctl start openclaw-proxy');
