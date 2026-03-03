@@ -6,8 +6,8 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 
 | Component | AWS Service | Purpose | Why this service |
 |---|---|---|---|
-| Agent Server | EC2 (configurable, default t4g.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type is configurable in `bin/openclaw.ts` |
-| API Proxy | EC2 (t4g.nano, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
+| Agent Server | EC2 (configurable, default t3a.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type is configurable in `bin/openclaw.ts` |
+| API Proxy | EC2 (t3a.nano, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
 | Remote Access | SSM Session Manager | Shell access to both EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
 | Provider API Keys | Secrets Manager (one secret per provider) | Stores the real API key for each configured provider (e.g. `openclaw/anthropic-api-key`) | Encrypted at rest, fine-grained IAM access, supports rotation; only the Proxy EC2 can read them |
@@ -41,12 +41,10 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 Edit `bin/openclaw.ts` to change the agent's instance type:
 
 ```typescript
-agentMachine: {
-  instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.XLARGE),
-},
+agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.XLARGE),
 ```
 
-Architecture (ARM64 vs x86_64) is auto-detected from the instance type. ARM instances like t4g/m7g use ARM64 AMIs, x86 instances like t3/m5 use x86_64 AMIs. Both instances run Ubuntu 24.04 LTS with Node.js 22, Docker, and SSM Agent installed automatically.
+Only x86_64 instance types are supported (e.g. t3a, t3, m5a, m7i). ARM/Graviton instance types (t4g, m7g, etc.) are not supported. Both instances run Ubuntu 24.04 LTS with Node.js 22, Docker, and SSM Agent installed automatically.
 
 Both EC2 instances run `unattended-upgrades` for automatic daily security updates. If a kernel update requires a reboot, instances reboot automatically at 03:00 UTC.
 

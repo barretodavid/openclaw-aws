@@ -193,15 +193,15 @@ describe('Resource Configuration', () => {
     expect(imdsv2Templates).toHaveLength(2);
   });
 
-  test('Agent EC2 defaults to t4g.large', () => {
+  test('Agent EC2 defaults to t3a.large', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't4g.large',
+      InstanceType: 't3a.large',
     });
   });
 
-  test('Proxy EC2 is t4g.nano', () => {
+  test('Proxy EC2 is t3a.nano', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't4g.nano',
+      InstanceType: 't3a.nano',
     });
   });
 
@@ -210,7 +210,7 @@ describe('Resource Configuration', () => {
     let foundDockerUserData = false;
 
     for (const [, instance] of Object.entries(instances)) {
-      if (instance.Properties?.InstanceType === 't4g.large') {
+      if (instance.Properties?.InstanceType === 't3a.large') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
         expect(userDataStr).toContain('apt-get install -y docker.io nodejs unattended-upgrades');
         expect(userDataStr).toContain('systemctl enable docker');
@@ -227,7 +227,7 @@ describe('Resource Configuration', () => {
     let foundProxyUserData = false;
 
     for (const [, instance] of Object.entries(instances)) {
-      if (instance.Properties?.InstanceType === 't4g.nano') {
+      if (instance.Properties?.InstanceType === 't3a.nano') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
         expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
         expect(userDataStr).toContain('apt-get install -y nodejs unattended-upgrades');
@@ -337,7 +337,7 @@ describe('Resource Counts', () => {
 
 // --- Agent Machine Configuration Tests ---
 
-function createStackWithConfig(agentMachine: { instanceType?: ec2.InstanceType }): Template {
+function createStackWithConfig(opts: { agentInstanceType?: ec2.InstanceType } = {}): Template {
   const app = new cdk.App();
   app.node.setContext('vpc-provider:account=123456789012:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true', {
     vpcId: 'vpc-12345',
@@ -358,7 +358,7 @@ function createStackWithConfig(agentMachine: { instanceType?: ec2.InstanceType }
 
   const stack = new OpenclawStack(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
-    agentMachine,
+    agentInstanceType: opts.agentInstanceType,
   });
 
   return Template.fromStack(stack);
@@ -376,8 +376,8 @@ function getAgentUserData(tmpl: Template, instanceType: string): string {
 
 describe('Agent Machine Configuration', () => {
   test('default config uses apt-get, Docker, and ubuntu user', () => {
-    const tmpl = createStackWithConfig({});
-    const userData = getAgentUserData(tmpl, 't4g.large');
+    const tmpl = createStackWithConfig();
+    const userData = getAgentUserData(tmpl, 't3a.large');
 
     expect(userData).toContain('apt-get update -y');
     expect(userData).toContain('deb.nodesource.com/setup_22.x');
@@ -385,24 +385,24 @@ describe('Agent Machine Configuration', () => {
     expect(userData).toContain('usermod -aG docker ubuntu');
   });
 
-  test('x86 instance type produces correct instance type in template', () => {
+  test('custom x86 instance type produces correct instance type in template', () => {
     const tmpl = createStackWithConfig({
-      instanceType: new ec2.InstanceType('t3.large'),
+      agentInstanceType: new ec2.InstanceType('m5a.large'),
     });
 
     tmpl.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't3.large',
+      InstanceType: 'm5a.large',
     });
 
-    const userData = getAgentUserData(tmpl, 't3.large');
+    const userData = getAgentUserData(tmpl, 'm5a.large');
     expect(userData).toContain('apt-get install -y docker.io nodejs');
   });
 
   test('Agent EC2 uses /dev/sda1 root device', () => {
-    const tmpl = createStackWithConfig({});
+    const tmpl = createStackWithConfig();
 
     tmpl.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't4g.large',
+      InstanceType: 't3a.large',
       BlockDeviceMappings: Match.arrayWith([
         Match.objectLike({
           DeviceName: '/dev/sda1',
@@ -412,18 +412,9 @@ describe('Agent Machine Configuration', () => {
     });
   });
 
-  test('Proxy instance is always Ubuntu 24.04 ARM regardless of agent instance type', () => {
-    const tmpl = createStackWithConfig({
-      instanceType: new ec2.InstanceType('t3.xlarge'),
-    });
-
-    // Proxy is still t4g.nano
-    tmpl.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't4g.nano',
-    });
-
-    const proxyUserData = getAgentUserData(tmpl, 't4g.nano');
-    expect(proxyUserData).toContain('apt-get install -y nodejs');
-    expect(proxyUserData).toContain('npm install -g openclaw-aws-proxy');
+  test('ARM instance type throws an error', () => {
+    expect(() => createStackWithConfig({
+      agentInstanceType: new ec2.InstanceType('t4g.large'),
+    })).toThrow(/ARM instance types are not supported/);
   });
 });

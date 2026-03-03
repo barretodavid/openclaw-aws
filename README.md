@@ -11,7 +11,7 @@ graph LR
     subgraph VPC ["Default VPC -- public subnets"]
         DNS["Route 53<br/>Private Hosted Zone<br/>(*.proxy.vpc)"]
         AgentEC2["Agent Server<br/>(EC2, configurable)"]
-        ProxyEC2["API Proxy<br/>(EC2 t4g.nano)"]
+        ProxyEC2["API Proxy<br/>(EC2 t3a.nano)"]
         AgentEC2 -->|"resolves<br/>anthropic.proxy.vpc"| DNS
         DNS -->|"proxy private IP"| AgentEC2
         AgentEC2 -->|"request via subdomain<br/>(anthropic.proxy.vpc:8080)"| ProxyEC2

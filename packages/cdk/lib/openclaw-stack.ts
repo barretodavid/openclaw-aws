@@ -10,7 +10,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
-import { AgentMachineConfig, resolveAgentMachine } from './agent-machine-config';
+import { resolveAgentMachine } from './agent-machine-config';
 import { PROVIDER_REGISTRY, InjectConfig, ubuntuBaseUserData } from './utils';
 
 const PROXY_PORT = 8080;
@@ -18,11 +18,10 @@ const AVAILABILITY_ZONE = 'ca-central-1b';
 
 export interface OpenclawStackProps extends cdk.StackProps {
   /**
-   * Agent EC2 machine configuration.
-   * Controls instance type and operating system.
-   * @default - t4g.large
+   * Agent EC2 instance type. Must be x86_64.
+   * @default t3a.large
    */
-  readonly agentMachine?: AgentMachineConfig;
+  readonly agentInstanceType?: ec2.InstanceType;
 }
 
 export class OpenclawStack extends cdk.Stack {
@@ -107,13 +106,10 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- EC2 Instances ---
 
-    // Resolve agent machine config (instance type, OS, user data)
-    const agentInstanceType = props?.agentMachine?.instanceType
-      ?? ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE);
-    const cpuType = agentInstanceType.architecture === ec2.InstanceArchitecture.ARM_64
-      ? ec2.AmazonLinuxCpuType.ARM_64
-      : ec2.AmazonLinuxCpuType.X86_64;
-    const agentMachine = resolveAgentMachine(cpuType);
+    // Resolve agent machine config (x86_64 only)
+    const agentInstanceType = props?.agentInstanceType
+      ?? ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE);
+    const agentMachine = resolveAgentMachine(agentInstanceType);
 
     const agentInstance = new ec2.Instance(this, 'AgentInstance', {
       vpc,
@@ -138,14 +134,14 @@ export class OpenclawStack extends cdk.Stack {
     );
 
     const proxyUbuntu = ec2.MachineImage.fromSsmParameter(
-      '/aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id',
+      '/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id',
       { os: ec2.OperatingSystemType.LINUX },
     );
 
     const proxyInstance = new ec2.Instance(this, 'ProxyInstance', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [AVAILABILITY_ZONE] },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
       machineImage: proxyUbuntu,
       securityGroup: proxySg,
       role: proxyRole,

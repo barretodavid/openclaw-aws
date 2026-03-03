@@ -4,9 +4,8 @@ import { ubuntuBaseUserData } from './utils';
 /** Configuration for the agent EC2 instance. */
 export interface AgentMachineConfig {
   /**
-   * EC2 instance type for the agent.
-   * Architecture (ARM64 vs x86_64) is auto-detected from the instance type.
-   * @default t4g.large
+   * EC2 instance type for the agent. Must be an x86_64 instance type.
+   * @default t3a.large
    */
   readonly instanceType?: ec2.InstanceType;
 }
@@ -20,16 +19,21 @@ export interface ResolvedAgentMachine {
 }
 
 /**
- * Resolves the agent machine configuration for the given CPU type.
+ * Resolves the agent machine configuration (x86_64 only).
  * Returns the Ubuntu 24.04 machine image, user data commands, default user, and root device name.
  */
 export function resolveAgentMachine(
-  cpuType: ec2.AmazonLinuxCpuType,
+  instanceType: ec2.InstanceType,
 ): ResolvedAgentMachine {
-  const arch = cpuType === ec2.AmazonLinuxCpuType.ARM_64 ? 'arm64' : 'amd64';
+  if (instanceType.architecture === ec2.InstanceArchitecture.ARM_64) {
+    throw new Error(
+      `ARM instance types are not supported. Got ${instanceType.toString()} - use an x86_64 type like t3a, m5a, or m7i instead.`,
+    );
+  }
+
   return {
     machineImage: ec2.MachineImage.fromSsmParameter(
-      `/aws/service/canonical/ubuntu/server/24.04/stable/current/${arch}/hvm/ebs-gp3/ami-id`,
+      '/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id',
       { os: ec2.OperatingSystemType.LINUX },
     ),
     userDataCommands: [
