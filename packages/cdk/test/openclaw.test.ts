@@ -3,6 +3,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack } from '../lib/openclaw-stack';
 import { PROVIDER_REGISTRY } from '../lib/ec2-config';
+import { config } from '../config';
 
 let template: Template;
 
@@ -45,6 +46,7 @@ beforeAll(() => {
 
   const stack = new OpenclawStack(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
+    ...config,
   });
 
   template = Template.fromStack(stack);
@@ -337,7 +339,7 @@ describe('Resource Counts', () => {
 
 // --- Agent Machine Configuration Tests ---
 
-function createStackWithConfig(opts: { agentInstanceType?: ec2.InstanceType } = {}): Template {
+function createStackWithConfig(overrides: Partial<typeof config> = {}): Template {
   const app = new cdk.App();
   app.node.setContext('vpc-provider:account=123456789012:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true', {
     vpcId: 'vpc-12345',
@@ -358,7 +360,8 @@ function createStackWithConfig(opts: { agentInstanceType?: ec2.InstanceType } = 
 
   const stack = new OpenclawStack(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
-    agentInstanceType: opts.agentInstanceType,
+    ...config,
+    ...overrides,
   });
 
   return Template.fromStack(stack);
@@ -385,7 +388,7 @@ describe('Agent Machine Configuration', () => {
     expect(userData).toContain('usermod -aG docker ubuntu');
   });
 
-  test('custom x86 instance type produces correct instance type in template', () => {
+  test('custom x86 agent instance type produces correct instance type in template', () => {
     const tmpl = createStackWithConfig({
       agentInstanceType: new ec2.InstanceType('m5a.large'),
     });
@@ -412,9 +415,15 @@ describe('Agent Machine Configuration', () => {
     });
   });
 
-  test('ARM instance type throws an error', () => {
+  test('ARM agent instance type throws an error', () => {
     expect(() => createStackWithConfig({
       agentInstanceType: new ec2.InstanceType('t4g.large'),
+    })).toThrow(/ARM instance types are not supported/);
+  });
+
+  test('ARM proxy instance type throws an error', () => {
+    expect(() => createStackWithConfig({
+      proxyInstanceType: new ec2.InstanceType('t4g.nano'),
     })).toThrow(/ARM instance types are not supported/);
   });
 });

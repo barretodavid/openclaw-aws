@@ -13,18 +13,20 @@ import { Construct } from 'constructs';
 import { resolveAgentMachine, PROVIDER_REGISTRY, InjectConfig, ubuntuBaseUserData } from './ec2-config';
 
 const PROXY_PORT = 8080;
-const AVAILABILITY_ZONE = 'ca-central-1b';
 
 export interface OpenclawStackProps extends cdk.StackProps {
-  /**
-   * Agent EC2 instance type. Must be x86_64.
-   * @default t3a.large
-   */
-  readonly agentInstanceType?: ec2.InstanceType;
+  /** Agent EC2 instance type. Must be x86_64. */
+  readonly agentInstanceType: ec2.InstanceType;
+  /** Proxy EC2 instance type. Must be x86_64. */
+  readonly proxyInstanceType: ec2.InstanceType;
+  /** Availability zone for both EC2 instances. */
+  readonly availabilityZone: string;
+  /** Root EBS volume size (GB) for the agent instance. */
+  readonly agentVolumeGb: number;
 }
 
 export class OpenclawStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: OpenclawStackProps) {
+  constructor(scope: Construct, id: string, props: OpenclawStackProps) {
     super(scope, id, props);
 
     // --- KMS Key (Wallet) ---
@@ -105,22 +107,19 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- EC2 Instances ---
 
-    // Resolve agent machine config (x86_64 only)
-    const agentInstanceType = props?.agentInstanceType
-      ?? ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE);
-    const agentMachine = resolveAgentMachine(agentInstanceType);
+    const agentMachine = resolveAgentMachine(props.agentInstanceType);
 
     const agentInstance = new ec2.Instance(this, 'AgentInstance', {
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [AVAILABILITY_ZONE] },
-      instanceType: agentInstanceType,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [props.availabilityZone] },
+      instanceType: props.agentInstanceType,
       machineImage: agentMachine.machineImage,
       securityGroup: agentSg,
       role: agentRole,
       blockDevices: [
         {
           deviceName: agentMachine.rootDeviceName,
-          volume: ec2.BlockDeviceVolume.ebs(30, { volumeType: ec2.EbsDeviceVolumeType.GP3 }),
+          volume: ec2.BlockDeviceVolume.ebs(props.agentVolumeGb, { volumeType: ec2.EbsDeviceVolumeType.GP3 }),
         },
       ],
       requireImdsv2: true,
@@ -132,16 +131,13 @@ export class OpenclawStack extends cdk.Stack {
       `usermod -aG docker ${agentMachine.defaultUser}`,
     );
 
-    const proxyUbuntu = ec2.MachineImage.fromSsmParameter(
-      '/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id',
-      { os: ec2.OperatingSystemType.LINUX },
-    );
+    const proxyMachine = resolveAgentMachine(props.proxyInstanceType);
 
     const proxyInstance = new ec2.Instance(this, 'ProxyInstance', {
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [AVAILABILITY_ZONE] },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
-      machineImage: proxyUbuntu,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [props.availabilityZone] },
+      instanceType: props.proxyInstanceType,
+      machineImage: proxyMachine.machineImage,
       securityGroup: proxySg,
       role: proxyRole,
       requireImdsv2: true,

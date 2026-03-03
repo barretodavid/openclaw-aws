@@ -6,7 +6,7 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 
 | Component | AWS Service | Purpose | Why this service |
 |---|---|---|---|
-| Agent Server | EC2 (configurable, default t3a.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type is configurable in `bin/openclaw.ts` |
+| Agent Server | EC2 (configurable, default t3a.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type is configurable in `config.ts` |
 | API Proxy | EC2 (t3a.nano, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
 | Remote Access | SSM Session Manager | Shell access to both EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
@@ -36,12 +36,17 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 * **Transaction guardrails on-chain, not in AWS** -- KMS signs whatever hash is sent to it and cannot judge transaction intent. Instead of CloudTrail alerting (which only detects after the fact), spending limits, whitelisted addresses, rate limits, and time locks are enforced at the Starknet account contract level. This prevents malicious transactions at the protocol level even if the agent and KMS are fully compromised.
 * **Default VPC with public subnets, no NAT Gateway** -- Private subnets + NAT Gateway add ~$32/month and complexity for minimal security benefit. Our security model relies on IAM roles and KMS, not network isolation. Security groups with no inbound rules make the instances unreachable from the internet. Outbound internet works directly without a NAT Gateway.
 
-## Customize the Agent Instance
+## Configuration
 
-Edit `bin/openclaw.ts` to change the agent's instance type:
+Edit `config.ts` to customize deployment settings:
 
 ```typescript
-agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.XLARGE),
+export const config = {
+  agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
+  proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
+  availabilityZone: 'ca-central-1b',
+  agentVolumeGb: 30,
+};
 ```
 
 Only x86_64 instance types are supported (e.g. t3a, t3, m5a, m7i). ARM/Graviton instance types (t4g, m7g, etc.) are not supported. Both instances run Ubuntu 24.04 LTS with Node.js 22, Docker, and SSM Agent installed automatically.
