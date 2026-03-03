@@ -29,6 +29,10 @@ export const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
   'data.voyager.online':               { envVar: 'VOYAGER_API_KEY',    inject: { type: 'header', name: 'x-apikey' },                           subdomain: 'voyager',    api: null },
 };
 
+// --- signal-cli ---
+
+const SIGNAL_CLI_VERSION = '0.14.0';
+
 // --- Ubuntu User Data ---
 
 /** Shared Ubuntu 24.04 user data: Node.js 22, unattended-upgrades with auto-reboot. */
@@ -96,6 +100,11 @@ export function resolveAgentMachine(
       ...ubuntuBaseUserData(['docker.io']),
       'systemctl enable docker',
       'systemctl start docker',
+      // signal-cli (pre-built binary with bundled JRE)
+      `curl -fsSL -o /tmp/signal-cli.tar.gz https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}.tar.gz`,
+      `tar xf /tmp/signal-cli.tar.gz -C /opt`,
+      `ln -sf /opt/signal-cli-${SIGNAL_CLI_VERSION}/bin/signal-cli /usr/local/bin/signal-cli`,
+      'rm /tmp/signal-cli.tar.gz',
     ],
     defaultUser: 'ubuntu',
     rootDeviceName: '/dev/sda1',
