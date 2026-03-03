@@ -8,5 +8,13 @@
     "synth": "pnpm --filter openclaw-cdk run synth",
     "destroy": "pnpm --filter openclaw-cdk run destroy",
     "publish:proxy": "pnpm --filter openclaw-aws-proxy publish"
+  },
+  "devDependencies": {
+    "@tsconfig/node22": "^22.0.5",
+    "@types/jest": "^30",
+    "@types/node": "^22",
+    "jest": "^30",
+    "ts-jest": "^29",
+    "typescript": "~5.9.3"
   }
 }

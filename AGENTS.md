@@ -10,20 +10,23 @@ Secure AWS infrastructure for an OpenClaw agent, defined using AWS CDK in TypeSc
 
 * TypeScript for readability and maintainability
 * AWS CDK for infrastructure-as-code
+* pnpm workspaces for monorepo dependency management
 * dotenv for loading `.env` configuration at synth/deploy time
 
 ## Build & Deploy Commands
 
-* `npm run typecheck` — type-check TypeScript (no JS emitted)
-* `npx cdk synth` — synthesize CloudFormation template
-* `npx cdk deploy` — deploy to AWS
-* `npx cdk destroy` — tear down the stack
-* `npm run test` — run Jest tests
+* `pnpm run typecheck` — type-check TypeScript across all packages
+* `pnpm run test` — run Jest tests across all packages
+* `pnpm run synth` — synthesize CloudFormation template
+* `pnpm run deploy` — deploy to AWS
+* `pnpm run destroy` — tear down the stack
 
 ## Project Structure
 
-* `bin/openclaw.ts` — CDK app entry point
-* `lib/openclaw-stack.ts` — single stack defining all infrastructure
+* `packages/cdk/` — CDK infrastructure package
+  * `bin/openclaw.ts` — CDK app entry point
+  * `lib/openclaw-stack.ts` — single stack defining all infrastructure
+* `packages/proxy/` — LLM API proxy package (published to npm)
 * `.env` / `.env.example` — per-provider API key configuration
 
 ## Key Conventions

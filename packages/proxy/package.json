@@ -23,12 +23,5 @@
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3",
     "@aws-sdk/client-ssm": "^3"
-  },
-  "devDependencies": {
-    "@types/jest": "^30",
-    "@types/node": "^22",
-    "jest": "^30",
-    "ts-jest": "^29",
-    "typescript": "~5.9.3"
   }
 }
