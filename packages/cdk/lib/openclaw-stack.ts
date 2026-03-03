@@ -10,8 +10,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
-import { resolveAgentMachine } from './agent-machine-config';
-import { PROVIDER_REGISTRY, InjectConfig, ubuntuBaseUserData } from './utils';
+import { resolveAgentMachine, PROVIDER_REGISTRY, InjectConfig, ubuntuBaseUserData } from './ec2-config';
 
 const PROXY_PORT = 8080;
 const AVAILABILITY_ZONE = 'ca-central-1b';

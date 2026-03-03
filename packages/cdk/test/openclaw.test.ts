@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack } from '../lib/openclaw-stack';
-import { PROVIDER_REGISTRY } from '../lib/utils';
+import { PROVIDER_REGISTRY } from '../lib/ec2-config';
 
 let template: Template;
 
