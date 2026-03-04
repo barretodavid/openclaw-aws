@@ -10,10 +10,13 @@
     "test": "jest",
     "deploy": "cdk deploy",
     "synth": "cdk synth",
-    "destroy": "cdk destroy",
+    "cleanup-wallet-keys": "ts-node scripts/cleanup-wallet-keys.ts",
+    "destroy": "ts-node scripts/cleanup-wallet-keys.ts && cdk destroy",
     "cdk": "cdk"
   },
   "devDependencies": {
+    "@aws-sdk/client-kms": "^3.1001.0",
+    "@aws-sdk/client-resource-groups-tagging-api": "^3.1001.0",
     "aws-cdk": "2.1107.0",
     "ts-node": "^10.9.2"
   },

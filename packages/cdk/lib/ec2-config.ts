@@ -56,6 +56,25 @@ export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
       'EOF',
     ].join('\n'),
     'systemctl enable unattended-upgrades',
+    // Default SSM Session Manager shell to bash (sh lacks readline)
+    [
+      'mkdir -p /etc/amazon/ssm',
+      "cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'EOF'",
+      '{',
+      '  "Profile": {',
+      '    "ShareCreds": true,',
+      '    "ShareProfile": ""',
+      '  },',
+      '  "Ssm": {',
+      '    "SessionManager": {',
+      '      "ShellProfile": {',
+      '        "Linux": "/bin/bash -l"',
+      '      }',
+      '    }',
+      '  }',
+      '}',
+      'EOF',
+    ].join('\n'),
   ];
 }
 
@@ -97,9 +116,14 @@ export function resolveAgentMachine(
       { os: ec2.OperatingSystemType.LINUX },
     ),
     userDataCommands: [
-      ...ubuntuBaseUserData(['docker.io']),
+      ...ubuntuBaseUserData(['docker.io', 'unzip']),
       'systemctl enable docker',
       'systemctl start docker',
+      // AWS CLI v2 (official installer)
+      'curl -fsSL -o /tmp/awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip',
+      'unzip -q /tmp/awscliv2.zip -d /tmp',
+      '/tmp/aws/install',
+      'rm -rf /tmp/awscliv2.zip /tmp/aws',
       // signal-cli (pre-built binary with bundled JRE)
       `curl -fsSL -o /tmp/signal-cli.tar.gz https://github.com/AsamK/signal-cli/releases/download/v${SIGNAL_CLI_VERSION}/signal-cli-${SIGNAL_CLI_VERSION}.tar.gz`,
       `tar xf /tmp/signal-cli.tar.gz -C /opt`,

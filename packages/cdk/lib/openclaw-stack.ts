@@ -5,7 +5,6 @@ dotenv.config({ path: path.join(__dirname, '..', '..', '..', '.env') });
 import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as kms from 'aws-cdk-lib/aws-kms';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
@@ -28,15 +27,6 @@ export interface OpenclawStackProps extends cdk.StackProps {
 export class OpenclawStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: OpenclawStackProps) {
     super(scope, id, props);
-
-    // --- KMS Key (Wallet) ---
-    const walletKey = new kms.Key(this, 'WalletKey', {
-      keySpec: kms.KeySpec.ECC_NIST_P256,
-      keyUsage: kms.KeyUsage.SIGN_VERIFY,
-      alias: 'openclaw-wallet-key',
-      description: 'Starknet secp256r1 signing key - private key never leaves HSM',
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
 
     // --- Default VPC ---
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
@@ -64,12 +54,49 @@ export class OpenclawStack extends cdk.Stack {
     // --- IAM Roles ---
     const agentRole = new iam.Role(this, 'AgentRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Agent EC2 role - KMS Sign + SSM Session Manager',
+      description: 'Agent EC2 role - KMS wallet management + SSM Session Manager',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
       ],
     });
-    walletKey.grant(agentRole, 'kms:Sign');
+
+    // Create wallet keys -- only ECC_NIST_P256 SIGN_VERIFY with the openclaw:wallet tag
+    agentRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['kms:CreateKey'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:RequestTag/openclaw': 'wallet',
+          'kms:KeySpec': 'ECC_NIST_P256',
+          'kms:KeyUsage': 'SIGN_VERIFY',
+        },
+      },
+    }));
+
+    // Tag wallet keys (required by CreateKey when tags are specified).
+    // No aws:RequestTag condition here -- KMS does not propagate request
+    // tags to the implicit kms:TagResource authorization during CreateKey.
+    agentRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['kms:TagResource'],
+      resources: ['*'],
+    }));
+
+    // Use wallet-tagged keys (sign, get public key, describe)
+    agentRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['kms:Sign', 'kms:GetPublicKey', 'kms:DescribeKey'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/openclaw': 'wallet',
+        },
+      },
+    }));
+
+    // Discover wallet keys via Resource Groups Tagging API
+    agentRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['tag:GetResources'],
+      resources: ['*'],
+    }));
 
     const proxyRole = new iam.Role(this, 'ProxyRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -209,11 +236,6 @@ export class OpenclawStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ProxyPrivateIp', {
       value: proxyInstance.instancePrivateIp,
       description: 'Proxy address: http://proxy.vpc:8080',
-    });
-
-    new cdk.CfnOutput(this, 'WalletKeyArn', {
-      value: walletKey.keyArn,
-      description: 'KMS wallet key ARN - use for kms:Sign calls',
     });
 
     new cdk.CfnOutput(this, 'ProxyConfigParameter', {

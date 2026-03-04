@@ -68,13 +68,50 @@ afterAll(() => {
 // --- Security Boundary Tests ---
 
 describe('Security Boundaries', () => {
-  test('Agent role grants only kms:Sign', () => {
-    // Find the agent role's policy — it should contain kms:Sign
+  test('Agent role allows kms:CreateKey only with wallet tag and correct key spec conditions', () => {
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: 'kms:Sign',
+            Action: 'kms:CreateKey',
+            Effect: 'Allow',
+            Condition: {
+              StringEquals: {
+                'aws:RequestTag/openclaw': 'wallet',
+                'kms:KeySpec': 'ECC_NIST_P256',
+                'kms:KeyUsage': 'SIGN_VERIFY',
+              },
+            },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  test('Agent role allows kms:Sign, kms:GetPublicKey, kms:DescribeKey only with wallet tag condition', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(['kms:Sign', 'kms:GetPublicKey', 'kms:DescribeKey']),
+            Effect: 'Allow',
+            Condition: {
+              StringEquals: {
+                'aws:ResourceTag/openclaw': 'wallet',
+              },
+            },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  test('Agent role allows tag:GetResources for wallet key discovery', () => {
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'tag:GetResources',
             Effect: 'Allow',
           }),
         ]),
@@ -83,12 +120,12 @@ describe('Security Boundaries', () => {
   });
 
   test('Agent role policy does not grant Secrets Manager access', () => {
-    // Get all IAM policies and check that the one with kms:Sign has no secretsmanager actions
+    // Get all IAM policies and check that the one with kms:CreateKey has no secretsmanager actions
     const policies = template.findResources('AWS::IAM::Policy');
     for (const [, policy] of Object.entries(policies)) {
       const statements = policy.Properties?.PolicyDocument?.Statement ?? [];
-      const hasKmsSign = statements.some((s: Record<string, unknown>) => s.Action === 'kms:Sign');
-      if (hasKmsSign) {
+      const hasKmsCreateKey = statements.some((s: Record<string, unknown>) => s.Action === 'kms:CreateKey');
+      if (hasKmsCreateKey) {
         // This is the agent policy — verify no secretsmanager actions
         for (const stmt of statements) {
           const actions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
@@ -100,7 +137,7 @@ describe('Security Boundaries', () => {
     }
   });
 
-  test('Proxy role grants Secrets Manager read but not kms:Sign', () => {
+  test('Proxy role grants Secrets Manager read but no KMS access', () => {
     const policies = template.findResources('AWS::IAM::Policy');
     let foundSecretsPolicy = false;
 
@@ -113,11 +150,11 @@ describe('Security Boundaries', () => {
 
       if (hasSecretsManager) {
         foundSecretsPolicy = true;
-        // Verify no kms:Sign in this policy
+        // Verify no KMS actions in this policy
         for (const stmt of statements) {
           const actions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
           for (const action of actions) {
-            expect(action).not.toBe('kms:Sign');
+            expect(action).not.toMatch(/^kms:/);
           }
         }
       }
@@ -179,20 +216,6 @@ describe('Security Boundaries', () => {
 // --- Resource Configuration Tests ---
 
 describe('Resource Configuration', () => {
-  test('KMS key uses ECC_NIST_P256 with SIGN_VERIFY', () => {
-    template.hasResourceProperties('AWS::KMS::Key', {
-      KeySpec: 'ECC_NIST_P256',
-      KeyUsage: 'SIGN_VERIFY',
-    });
-  });
-
-  test('KMS key has DESTROY deletion policy', () => {
-    template.hasResource('AWS::KMS::Key', {
-      DeletionPolicy: 'Delete',
-      UpdateReplacePolicy: 'Delete',
-    });
-  });
-
   test('Both EC2 instances require IMDSv2 to prevent SSRF credential theft', () => {
     // CDK's requireImdsv2 creates LaunchTemplates with HttpTokens: required
     const launchTemplates = template.findResources('AWS::EC2::LaunchTemplate');
@@ -221,7 +244,8 @@ describe('Resource Configuration', () => {
     for (const [, instance] of Object.entries(instances)) {
       if (instance.Properties?.InstanceType === 't3a.large') {
         const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('apt-get install -y docker.io nodejs unattended-upgrades');
+        expect(userDataStr).toContain('apt-get install -y docker.io unzip nodejs unattended-upgrades');
+        expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
         expect(userDataStr).toContain('systemctl enable docker');
         expect(userDataStr).toContain('systemctl start docker');
         foundDockerUserData = true;
@@ -343,8 +367,8 @@ describe('Resource Counts', () => {
     template.resourceCountIs('AWS::EC2::SecurityGroup', 2);
   });
 
-  test('exactly 1 KMS key', () => {
-    template.resourceCountIs('AWS::KMS::Key', 1);
+  test('no CDK-managed KMS keys (agent creates them at runtime)', () => {
+    template.resourceCountIs('AWS::KMS::Key', 0);
   });
 
   test('one Secrets Manager secret per configured provider', () => {
@@ -408,7 +432,8 @@ describe('Agent Machine Configuration', () => {
 
     expect(userData).toContain('apt-get update -y');
     expect(userData).toContain('deb.nodesource.com/setup_22.x');
-    expect(userData).toContain('apt-get install -y docker.io nodejs');
+    expect(userData).toContain('apt-get install -y docker.io unzip nodejs');
+    expect(userData).toContain('awscli-exe-linux-x86_64.zip');
     expect(userData).toContain('usermod -aG docker ubuntu');
   });
 
@@ -422,7 +447,8 @@ describe('Agent Machine Configuration', () => {
     });
 
     const userData = getAgentUserData(tmpl, 'm5a.large');
-    expect(userData).toContain('apt-get install -y docker.io nodejs');
+    expect(userData).toContain('apt-get install -y docker.io unzip nodejs');
+    expect(userData).toContain('awscli-exe-linux-x86_64.zip');
   });
 
   test('Agent EC2 uses /dev/sda1 root device', () => {
