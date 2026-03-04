@@ -6,7 +6,7 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 
 | Component | AWS Service | Purpose | Why this service |
 |---|---|---|---|
-| Agent Server | EC2 (configurable, default t3a.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type is configurable in `config.ts` |
+| Agent Server | EC2 (configurable, default t3a.large, 30 GB EBS) | Runs OpenClaw + agents | Long-running process needs a persistent server; instance type is configurable in `bin/openclaw.ts` |
 | API Proxy | EC2 (t3a.nano, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
 | Remote Access | SSM Session Manager | Shell access to both EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
@@ -38,15 +38,16 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 
 ## Configuration
 
-Edit `config.ts` to customize deployment settings:
+Edit `bin/openclaw.ts` to customize deployment settings:
 
 ```typescript
-export const config = {
+new OpenclawStack(app, 'OpenclawStack', {
+  // ...
+  availabilityZone: 'ca-central-1b',
   agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
   proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
-  availabilityZone: 'ca-central-1b',
   agentVolumeGb: 30,
-};
+});
 ```
 
 Only x86_64 instance types are supported (e.g. t3a, t3, m5a, m7i). ARM/Graviton instance types (t4g, m7g, etc.) are not supported. Both instances run Ubuntu 24.04 LTS with Node.js 22, Docker, and SSM Agent installed automatically.

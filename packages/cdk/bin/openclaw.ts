@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib/core';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { OpenclawStack } from '../lib/openclaw-stack';
-import { config } from '../config';
 
 const app = new cdk.App();
 new OpenclawStack(app, 'OpenclawStack', {
@@ -8,8 +8,8 @@ new OpenclawStack(app, 'OpenclawStack', {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,
   },
-  agentInstanceType: config.agentInstanceType,
-  proxyInstanceType: config.proxyInstanceType,
-  availabilityZone: config.availabilityZone,
-  agentVolumeGb: config.agentVolumeGb,
+  availabilityZone: 'ca-central-1b',
+  agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
+  proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
+  agentVolumeGb: 30,
 });

@@ -3,7 +3,14 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack } from '../lib/openclaw-stack';
 import { PROVIDER_REGISTRY } from '../lib/ec2-config';
-import { config } from '../config';
+
+/** Default config values for tests (mirrors production defaults in bin/openclaw.ts). */
+const defaults = {
+  availabilityZone: 'ca-central-1b',
+  agentInstanceType: new ec2.InstanceType('t3a.large'),
+  proxyInstanceType: new ec2.InstanceType('t3a.nano'),
+  agentVolumeGb: 30,
+};
 
 let template: Template;
 
@@ -46,7 +53,7 @@ beforeAll(() => {
 
   const stack = new OpenclawStack(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
-    ...config,
+    ...defaults,
   });
 
   template = Template.fromStack(stack);
@@ -356,7 +363,7 @@ describe('Resource Counts', () => {
 
 // --- Agent Machine Configuration Tests ---
 
-function createStackWithConfig(overrides: Partial<typeof config> = {}): Template {
+function createStackWithConfig(overrides: Partial<typeof defaults> = {}): Template {
   const app = new cdk.App();
   app.node.setContext('vpc-provider:account=123456789012:filter.isDefault=true:region=us-east-1:returnAsymmetricSubnets=true', {
     vpcId: 'vpc-12345',
@@ -377,7 +384,7 @@ function createStackWithConfig(overrides: Partial<typeof config> = {}): Template
 
   const stack = new OpenclawStack(app, 'TestStack', {
     env: { account: '123456789012', region: 'us-east-1' },
-    ...config,
+    ...defaults,
     ...overrides,
   });
 
