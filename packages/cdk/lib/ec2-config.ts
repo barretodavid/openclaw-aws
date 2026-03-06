@@ -99,15 +99,13 @@ export function resolveAgentMachine(
       'unzip -q /tmp/awscliv2.zip -d /tmp',
       '/tmp/aws/install',
       'rm -rf /tmp/awscliv2.zip /tmp/aws',
-      // signal-cli (native binary, no JRE needed)
-      'curl -fsSL -o /tmp/signal-cli.tar.gz https://github.com/AsamK/signal-cli/releases/download/v0.14.0/signal-cli-0.14.0-Linux-native.tar.gz',
-      'tar xf /tmp/signal-cli.tar.gz -C /usr/local/bin',
-      'rm /tmp/signal-cli.tar.gz',
       // npm global prefix for ubuntu user (avoids sudo for npm install -g)
       'sudo -u ubuntu mkdir -p /home/ubuntu/.npm-global',
       'sudo -u ubuntu npm config set prefix /home/ubuntu/.npm-global',
       'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' > /etc/profile.d/npm-global.sh',
       'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' >> /home/ubuntu/.bashrc',
+      // OpenClaw needs this to use plain ws:// over non-loopback (VPC-internal, SG-protected)
+      'echo \'export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1\' > /etc/profile.d/openclaw.sh',
       // Enable systemd user instance for ubuntu (persists user services without login)
       'loginctl enable-linger ubuntu',
     ],

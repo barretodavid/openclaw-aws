@@ -11,5 +11,6 @@ new OpenclawStack(app, 'OpenclawStack', {
   availabilityZone: 'ca-central-1b',
   agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
   proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
+  gatewayInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
   agentVolumeGb: 30,
 });

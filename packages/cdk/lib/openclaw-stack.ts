@@ -12,13 +12,16 @@ import { Construct } from 'constructs';
 import { resolveAgentMachine, PROVIDER_REGISTRY, InjectConfig, ubuntuBaseUserData } from './ec2-config';
 
 const PROXY_PORT = 8080;
+const GATEWAY_PORT = 18789;
 
 export interface OpenclawStackProps extends cdk.StackProps {
   /** Agent EC2 instance type. Must be x86_64. */
   readonly agentInstanceType: ec2.InstanceType;
   /** Proxy EC2 instance type. Must be x86_64. */
   readonly proxyInstanceType: ec2.InstanceType;
-  /** Availability zone for both EC2 instances. */
+  /** Gateway EC2 instance type. Must be x86_64. */
+  readonly gatewayInstanceType: ec2.InstanceType;
+  /** Availability zone for all EC2 instances. */
   readonly availabilityZone: string;
   /** Root EBS volume size (GB) for the agent instance. */
   readonly agentVolumeGb: number;
@@ -48,8 +51,18 @@ export class OpenclawStack extends cdk.Stack {
     proxySg.addIngressRule(agentSg, ec2.Port.tcp(PROXY_PORT), 'Agent to Proxy');
     proxySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS to LLM provider');
 
-    // Agent also needs to reach the proxy
+    const gatewaySg = new ec2.SecurityGroup(this, 'GatewaySg', {
+      vpc,
+      description: 'Gateway EC2 - inbound WebSocket from Agent, outbound HTTPS for channel APIs',
+      allowAllOutbound: false,
+    });
+    gatewaySg.addIngressRule(agentSg, ec2.Port.tcp(GATEWAY_PORT), 'Agent to Gateway WebSocket');
+    gatewaySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS (channel APIs)');
+    gatewaySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
+
+    // Agent also needs to reach the proxy and gateway
     agentSg.addEgressRule(proxySg, ec2.Port.tcp(PROXY_PORT), 'Agent to Proxy');
+    agentSg.addEgressRule(gatewaySg, ec2.Port.tcp(GATEWAY_PORT), 'Agent to Gateway WebSocket');
 
     // --- IAM Roles ---
     const agentRole = new iam.Role(this, 'AgentRole', {
@@ -97,6 +110,14 @@ export class OpenclawStack extends cdk.Stack {
       actions: ['tag:GetResources'],
       resources: ['*'],
     }));
+
+    const gatewayRole = new iam.Role(this, 'GatewayRole', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      description: 'Gateway EC2 role - SSM Session Manager only (no KMS, no Secrets Manager)',
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+      ],
+    });
 
     const proxyRole = new iam.Role(this, 'ProxyRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
@@ -199,6 +220,36 @@ export class OpenclawStack extends cdk.Stack {
       'systemctl start openclaw-proxy',
     );
 
+    const gatewayMachine = resolveAgentMachine(props.gatewayInstanceType);
+
+    const gatewayInstance = new ec2.Instance(this, 'GatewayInstance', {
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [props.availabilityZone] },
+      instanceType: props.gatewayInstanceType,
+      machineImage: gatewayMachine.machineImage,
+      securityGroup: gatewaySg,
+      role: gatewayRole,
+      requireImdsv2: true,
+    });
+
+    // --- Gateway: Node.js + signal-cli (channel integration dependency) ---
+    gatewayInstance.addUserData(
+      ...ubuntuBaseUserData(),
+      // signal-cli (native binary, no JRE needed) -- used by OpenClaw gateway for Signal channel
+      'curl -fsSL -o /tmp/signal-cli.tar.gz https://github.com/AsamK/signal-cli/releases/download/v0.14.0/signal-cli-0.14.0-Linux-native.tar.gz',
+      'tar xf /tmp/signal-cli.tar.gz -C /usr/local/bin',
+      'rm /tmp/signal-cli.tar.gz',
+      // npm global prefix for ubuntu user (avoids sudo for npm install -g)
+      'sudo -u ubuntu mkdir -p /home/ubuntu/.npm-global',
+      'sudo -u ubuntu npm config set prefix /home/ubuntu/.npm-global',
+      'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' > /etc/profile.d/npm-global.sh',
+      'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' >> /home/ubuntu/.bashrc',
+      // OpenClaw needs this to use plain ws:// over non-loopback (VPC-internal, SG-protected)
+      'echo \'export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1\' > /etc/profile.d/openclaw.sh',
+      // Enable systemd user instance for ubuntu (persists user services without login)
+      'loginctl enable-linger ubuntu',
+    );
+
     // --- Private DNS (proxy.vpc) ---
     const hostedZone = new route53.PrivateHostedZone(this, 'InternalZone', {
       zoneName: 'vpc',
@@ -209,6 +260,12 @@ export class OpenclawStack extends cdk.Stack {
       zone: hostedZone,
       recordName: 'proxy',
       target: route53.RecordTarget.fromIpAddresses(proxyInstance.instancePrivateIp),
+    });
+
+    new route53.ARecord(this, 'GatewayDns', {
+      zone: hostedZone,
+      recordName: 'gateway',
+      target: route53.RecordTarget.fromIpAddresses(gatewayInstance.instancePrivateIp),
     });
 
     // Per-provider subdomains (only for configured providers)
@@ -252,6 +309,16 @@ export class OpenclawStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ProxyPrivateIp', {
       value: proxyInstance.instancePrivateIp,
       description: 'Proxy address: http://proxy.vpc:8080',
+    });
+
+    new cdk.CfnOutput(this, 'GatewayInstanceId', {
+      value: gatewayInstance.instanceId,
+      description: 'Gateway EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
+    });
+
+    new cdk.CfnOutput(this, 'GatewayPrivateIp', {
+      value: gatewayInstance.instancePrivateIp,
+      description: 'Gateway address: ws://gateway.vpc:18789',
     });
 
     new cdk.CfnOutput(this, 'ProxyConfigParameter', {

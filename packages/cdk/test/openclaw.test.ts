@@ -9,6 +9,7 @@ const defaults = {
   availabilityZone: 'ca-central-1b',
   agentInstanceType: new ec2.InstanceType('t3a.large'),
   proxyInstanceType: new ec2.InstanceType('t3a.nano'),
+  gatewayInstanceType: new ec2.InstanceType('t3a.nano'),
   agentVolumeGb: 30,
 };
 
@@ -163,13 +164,13 @@ describe('Security Boundaries', () => {
     expect(foundSecretsPolicy).toBe(true);
   });
 
-  test('Both EC2 roles allow SSM Session Manager access', () => {
+  test('All EC2 roles allow SSM Session Manager access', () => {
     const roles = template.findResources('AWS::IAM::Role');
     const ec2Roles = Object.values(roles).filter(
       (r) => r.Properties?.AssumeRolePolicyDocument?.Statement?.[0]?.Principal?.Service === 'ec2.amazonaws.com',
     );
 
-    expect(ec2Roles).toHaveLength(2);
+    expect(ec2Roles).toHaveLength(3);
 
     for (const role of ec2Roles) {
       const managedPolicies: { 'Fn::Join': [string, string[]] }[] = role.Properties.ManagedPolicyArns;
@@ -211,18 +212,45 @@ describe('Security Boundaries', () => {
       ToPort: 8080,
     });
   });
+
+  test('Gateway security group allows inbound only from Agent SG on port 18789', () => {
+    template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+      IpProtocol: 'tcp',
+      FromPort: 18789,
+      ToPort: 18789,
+    });
+  });
+
+  test('Gateway role has no KMS or Secrets Manager access', () => {
+    // Gateway role has only SSM managed policy and no inline policy with kms/secretsmanager
+    const roles = template.findResources('AWS::IAM::Role');
+    const policies = template.findResources('AWS::IAM::Policy');
+
+    // Find the gateway role (description identifies it)
+    const gatewayRoleId = Object.entries(roles).find(
+      ([, r]) => r.Properties?.Description?.includes('Gateway'),
+    )?.[0];
+    expect(gatewayRoleId).toBeDefined();
+
+    // No inline policy should reference the gateway role
+    for (const [, policy] of Object.entries(policies)) {
+      const policyRoles: { Ref: string }[] = policy.Properties?.Roles ?? [];
+      const referencesGateway = policyRoles.some((r) => r.Ref === gatewayRoleId);
+      expect(referencesGateway).toBe(false);
+    }
+  });
 });
 
 // --- Resource Configuration Tests ---
 
 describe('Resource Configuration', () => {
-  test('Both EC2 instances require IMDSv2 to prevent SSRF credential theft', () => {
+  test('All EC2 instances require IMDSv2 to prevent SSRF credential theft', () => {
     // CDK's requireImdsv2 creates LaunchTemplates with HttpTokens: required
     const launchTemplates = template.findResources('AWS::EC2::LaunchTemplate');
     const imdsv2Templates = Object.values(launchTemplates).filter(
       (lt) => lt.Properties?.LaunchTemplateData?.MetadataOptions?.HttpTokens === 'required',
     );
-    expect(imdsv2Templates).toHaveLength(2);
+    expect(imdsv2Templates).toHaveLength(3);
   });
 
   test('Agent EC2 defaults to t3a.large', () => {
@@ -255,15 +283,17 @@ describe('Resource Configuration', () => {
     expect(foundDockerUserData).toBe(true);
   });
 
-  test('Agent EC2 user data installs signal-cli', () => {
+  test('Gateway EC2 user data installs signal-cli', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let foundSignalCli = false;
 
     for (const [, instance] of Object.entries(instances)) {
-      if (instance.Properties?.InstanceType === 't3a.large') {
-        const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('signal-cli');
+      const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
+      if (userDataStr.includes('signal-cli')) {
         expect(userDataStr).toContain('-C /usr/local/bin');
+        // Gateway should NOT have Docker or proxy
+        expect(userDataStr).not.toContain('docker');
+        expect(userDataStr).not.toContain('openclaw-aws-proxy');
         foundSignalCli = true;
       }
     }
@@ -276,11 +306,11 @@ describe('Resource Configuration', () => {
     let foundProxyUserData = false;
 
     for (const [, instance] of Object.entries(instances)) {
-      if (instance.Properties?.InstanceType === 't3a.nano') {
-        const userDataStr = JSON.stringify(instance.Properties?.UserData);
+      const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
+      // Disambiguate proxy from gateway (both t3a.nano) by checking for proxy-specific content
+      if (userDataStr.includes('openclaw-aws-proxy')) {
         expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
         expect(userDataStr).toContain('apt-get install -y nodejs unattended-upgrades');
-        expect(userDataStr).toContain('npm install -g openclaw-aws-proxy');
         expect(userDataStr).toContain('systemctl enable openclaw-proxy');
         expect(userDataStr).toContain('systemctl start openclaw-proxy');
         foundProxyUserData = true;
@@ -288,6 +318,27 @@ describe('Resource Configuration', () => {
     }
 
     expect(foundProxyUserData).toBe(true);
+  });
+
+  test('Agent and Gateway user data set OPENCLAW_ALLOW_INSECURE_PRIVATE_WS', () => {
+    const instances = template.findResources('AWS::EC2::Instance');
+    let agentHasEnvVar = false;
+    let gatewayHasEnvVar = false;
+
+    for (const [, instance] of Object.entries(instances)) {
+      const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
+      if (userDataStr.includes('docker')) {
+        expect(userDataStr).toContain('OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1');
+        agentHasEnvVar = true;
+      }
+      if (userDataStr.includes('signal-cli')) {
+        expect(userDataStr).toContain('OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1');
+        gatewayHasEnvVar = true;
+      }
+    }
+
+    expect(agentHasEnvVar).toBe(true);
+    expect(gatewayHasEnvVar).toBe(true);
   });
 
   test('Private hosted zone exists with zone name vpc', () => {
@@ -299,6 +350,13 @@ describe('Resource Configuration', () => {
   test('A record for proxy.vpc points to proxy instance', () => {
     template.hasResourceProperties('AWS::Route53::RecordSet', {
       Name: 'proxy.vpc.',
+      Type: 'A',
+    });
+  });
+
+  test('A record for gateway.vpc points to gateway instance', () => {
+    template.hasResourceProperties('AWS::Route53::RecordSet', {
+      Name: 'gateway.vpc.',
       Type: 'A',
     });
   });
@@ -354,16 +412,16 @@ describe('Resource Configuration', () => {
 // --- Resource Count Tests ---
 
 describe('Resource Counts', () => {
-  test('exactly 2 EC2 instances', () => {
-    template.resourceCountIs('AWS::EC2::Instance', 2);
+  test('exactly 3 EC2 instances', () => {
+    template.resourceCountIs('AWS::EC2::Instance', 3);
   });
 
-  test('exactly 2 IAM roles', () => {
-    template.resourceCountIs('AWS::IAM::Role', 2);
+  test('exactly 3 IAM roles', () => {
+    template.resourceCountIs('AWS::IAM::Role', 3);
   });
 
-  test('exactly 2 security groups', () => {
-    template.resourceCountIs('AWS::EC2::SecurityGroup', 2);
+  test('exactly 3 security groups', () => {
+    template.resourceCountIs('AWS::EC2::SecurityGroup', 3);
   });
 
   test('no CDK-managed KMS keys (agent creates them at runtime)', () => {
@@ -378,9 +436,9 @@ describe('Resource Counts', () => {
     template.resourceCountIs('AWS::SSM::Parameter', 1);
   });
 
-  test('one base + one per-provider DNS A record', () => {
-    // 1 base (proxy.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
-    template.resourceCountIs('AWS::Route53::RecordSet', 1 + Object.keys(MOCK_ENV_VARS).length);
+  test('base + gateway + per-provider DNS A records', () => {
+    // 1 base (proxy.vpc) + 1 gateway (gateway.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
+    template.resourceCountIs('AWS::Route53::RecordSet', 2 + Object.keys(MOCK_ENV_VARS).length);
   });
 });
 
@@ -473,6 +531,12 @@ describe('Agent Machine Configuration', () => {
   test('ARM proxy instance type throws an error', () => {
     expect(() => createStackWithConfig({
       proxyInstanceType: new ec2.InstanceType('t4g.nano'),
+    })).toThrow(/ARM instance types are not supported/);
+  });
+
+  test('ARM gateway instance type throws an error', () => {
+    expect(() => createStackWithConfig({
+      gatewayInstanceType: new ec2.InstanceType('t4g.nano'),
     })).toThrow(/ARM instance types are not supported/);
   });
 });
