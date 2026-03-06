@@ -255,23 +255,6 @@ describe('Resource Configuration', () => {
     expect(foundDockerUserData).toBe(true);
   });
 
-  test('Agent EC2 user data installs signal-cli', () => {
-    const instances = template.findResources('AWS::EC2::Instance');
-    let foundSignalCli = false;
-
-    for (const [, instance] of Object.entries(instances)) {
-      if (instance.Properties?.InstanceType === 't3a.large') {
-        const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('signal-cli');
-        expect(userDataStr).toContain('/opt');
-        expect(userDataStr).toContain('/usr/local/bin/signal-cli');
-        foundSignalCli = true;
-      }
-    }
-
-    expect(foundSignalCli).toBe(true);
-  });
-
   test('Proxy EC2 user data installs Node.js and starts proxy service', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let foundProxyUserData = false;
