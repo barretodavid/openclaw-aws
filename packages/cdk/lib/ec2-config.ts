@@ -32,7 +32,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
 // --- Ubuntu User Data ---
 
 /** Shared Ubuntu 24.04 user data: Node.js 22, unattended-upgrades with auto-reboot. */
-export function ubuntuBaseUserData(defaultUser: string, extraAptPackages: string[] = []): string[] {
+export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
   const aptPackages = [...extraAptPackages, 'nodejs', 'unattended-upgrades'].join(' ');
   return [
     'apt-get update -y',
@@ -52,27 +52,6 @@ export function ubuntuBaseUserData(defaultUser: string, extraAptPackages: string
       'EOF',
     ].join('\n'),
     'systemctl enable unattended-upgrades',
-    // SSM Session Manager: login as the default user with bash
-    [
-      'mkdir -p /etc/amazon/ssm',
-      "cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'EOF'",
-      '{',
-      '  "Profile": {',
-      '    "ShareCreds": true,',
-      '    "ShareProfile": ""',
-      '  },',
-      '  "Ssm": {',
-      '    "SessionManager": {',
-      `      "RunAs": "${defaultUser}",`,
-      '      "ShellProfile": {',
-      '        "Linux": "/bin/bash -l"',
-      '      }',
-      '    }',
-      '  }',
-      '}',
-      'EOF',
-    ].join('\n'),
-    'systemctl restart amazon-ssm-agent',
   ];
 }
 
@@ -114,7 +93,7 @@ export function resolveAgentMachine(
       { os: ec2.OperatingSystemType.LINUX },
     ),
     userDataCommands: [
-      ...ubuntuBaseUserData('ubuntu', ['docker.io', 'unzip']),
+      ...ubuntuBaseUserData(['docker.io', 'unzip']),
       'systemctl enable docker',
       'systemctl start docker',
       // AWS CLI v2 (official installer)
@@ -126,6 +105,13 @@ export function resolveAgentMachine(
       'curl -fsSL -o /tmp/signal-cli.tar.gz https://github.com/AsamK/signal-cli/releases/download/v0.14.0/signal-cli-0.14.0-Linux-native.tar.gz',
       'tar xf /tmp/signal-cli.tar.gz -C /usr/local/bin',
       'rm /tmp/signal-cli.tar.gz',
+      // npm global prefix for ubuntu user (avoids sudo for npm install -g)
+      'sudo -u ubuntu mkdir -p /home/ubuntu/.npm-global',
+      'sudo -u ubuntu npm config set prefix /home/ubuntu/.npm-global',
+      'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' > /etc/profile.d/npm-global.sh',
+      'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' >> /home/ubuntu/.bashrc',
+      // Enable systemd user instance for ubuntu (persists user services without login)
+      'loginctl enable-linger ubuntu',
     ],
     defaultUser: 'ubuntu',
     rootDeviceName: '/dev/sda1',

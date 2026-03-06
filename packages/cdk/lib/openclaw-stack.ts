@@ -172,7 +172,7 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- Proxy Application (installed from npm) ---
     proxyInstance.addUserData(
-      ...ubuntuBaseUserData('ubuntu'),
+      ...ubuntuBaseUserData(),
       // Install proxy from npm (global)
       'npm install -g openclaw-aws-proxy',
       // Create systemd service
@@ -222,15 +222,31 @@ export class OpenclawStack extends cdk.Stack {
       });
     }
 
+    // --- SSM Session Document (login as ubuntu) ---
+    new ssm.CfnDocument(this, 'SessionDocument', {
+      name: 'ubuntu',
+      documentType: 'Session',
+      content: {
+        schemaVersion: '1.0',
+        description: 'SSM session that logs in as the ubuntu user',
+        sessionType: 'Standard_Stream',
+        inputs: {
+          shellProfile: {
+            linux: 'export XDG_RUNTIME_DIR=/run/user/$(id -u ubuntu); exec sudo -u ubuntu -i env XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR bash -l',
+          },
+        },
+      },
+    });
+
     // --- Stack Outputs ---
     new cdk.CfnOutput(this, 'AgentInstanceId', {
       value: agentInstance.instanceId,
-      description: 'Agent EC2 instance ID - use with: aws ssm start-session --target <id>',
+      description: 'Agent EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
     });
 
     new cdk.CfnOutput(this, 'ProxyInstanceId', {
       value: proxyInstance.instanceId,
-      description: 'Proxy EC2 instance ID - use with: aws ssm start-session --target <id>',
+      description: 'Proxy EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
     });
 
     new cdk.CfnOutput(this, 'ProxyPrivateIp', {
