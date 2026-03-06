@@ -32,7 +32,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
 // --- Ubuntu User Data ---
 
 /** Shared Ubuntu 24.04 user data: Node.js 22, unattended-upgrades with auto-reboot. */
-export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
+export function ubuntuBaseUserData(defaultUser: string, extraAptPackages: string[] = []): string[] {
   const aptPackages = [...extraAptPackages, 'nodejs', 'unattended-upgrades'].join(' ');
   return [
     'apt-get update -y',
@@ -52,7 +52,7 @@ export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
       'EOF',
     ].join('\n'),
     'systemctl enable unattended-upgrades',
-    // Default SSM Session Manager shell to bash (sh lacks readline)
+    // SSM Session Manager: login as the default user with bash
     [
       'mkdir -p /etc/amazon/ssm',
       "cat > /etc/amazon/ssm/amazon-ssm-agent.json << 'EOF'",
@@ -63,6 +63,7 @@ export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
       '  },',
       '  "Ssm": {',
       '    "SessionManager": {',
+      `      "RunAs": "${defaultUser}",`,
       '      "ShellProfile": {',
       '        "Linux": "/bin/bash -l"',
       '      }',
@@ -71,6 +72,7 @@ export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
       '}',
       'EOF',
     ].join('\n'),
+    'systemctl restart amazon-ssm-agent',
   ];
 }
 
@@ -112,7 +114,7 @@ export function resolveAgentMachine(
       { os: ec2.OperatingSystemType.LINUX },
     ),
     userDataCommands: [
-      ...ubuntuBaseUserData(['docker.io', 'unzip']),
+      ...ubuntuBaseUserData('ubuntu', ['docker.io', 'unzip']),
       'systemctl enable docker',
       'systemctl start docker',
       // AWS CLI v2 (official installer)
@@ -120,6 +122,10 @@ export function resolveAgentMachine(
       'unzip -q /tmp/awscliv2.zip -d /tmp',
       '/tmp/aws/install',
       'rm -rf /tmp/awscliv2.zip /tmp/aws',
+      // signal-cli (native binary, no JRE needed)
+      'curl -fsSL -o /tmp/signal-cli.tar.gz https://github.com/AsamK/signal-cli/releases/download/v0.14.0/signal-cli-0.14.0-Linux-native.tar.gz',
+      'tar xf /tmp/signal-cli.tar.gz -C /usr/local/bin',
+      'rm /tmp/signal-cli.tar.gz',
     ],
     defaultUser: 'ubuntu',
     rootDeviceName: '/dev/sda1',

@@ -172,7 +172,7 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- Proxy Application (installed from npm) ---
     proxyInstance.addUserData(
-      ...ubuntuBaseUserData(),
+      ...ubuntuBaseUserData('ubuntu'),
       // Install proxy from npm (global)
       'npm install -g openclaw-aws-proxy',
       // Create systemd service
