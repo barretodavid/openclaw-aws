@@ -20,8 +20,6 @@ export const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
   'openrouter.ai':                     { envVar: 'OPENROUTER_API_KEY', inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'openrouter', api: 'openai' },
   'api.venice.ai':                     { envVar: 'VENICE_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'venice',     api: 'openai' },
   'api.cerebras.ai':                   { envVar: 'CEREBRAS_API_KEY',   inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'cerebras',   api: 'openai' },
-  // Search
-  'api.search.brave.com':              { envVar: 'BRAVE_SEARCH_KEY',   inject: { type: 'header', name: 'X-Subscription-Token' },               subdomain: 'brave',      api: null },
   // Starknet RPC providers (Alchemy, Infura use API key in URL path -- industry convention)
   'starknet-mainnet.g.alchemy.com':    { envVar: 'ALCHEMY_API_KEY',    inject: { type: 'path' },                                               subdomain: 'alchemy',    api: null },
   'starknet-mainnet.infura.io':        { envVar: 'INFURA_API_KEY',     inject: { type: 'path' },                                               subdomain: 'infura',     api: null },

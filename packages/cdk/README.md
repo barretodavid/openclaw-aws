@@ -35,6 +35,7 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 * **Broad HTTPS egress for Agent EC2** -- Restricting the agent to specific IPs would limit its usefulness. The security model relies on IAM and KMS boundaries to protect secrets, not on network egress filtering. The agent has no IAM access to Secrets Manager, and the private key never leaves KMS.
 * **Transaction guardrails on-chain, not in AWS** -- KMS signs whatever hash is sent to it and cannot judge transaction intent. Instead of CloudTrail alerting (which only detects after the fact), spending limits, whitelisted addresses, rate limits, and time locks are enforced at the Starknet account contract level. This prevents malicious transactions at the protocol level even if the agent and KMS are fully compromised.
 * **Default VPC with public subnets, no NAT Gateway** -- Private subnets + NAT Gateway add ~$32/month and complexity for minimal security benefit. Our security model relies on IAM roles and KMS, not network isolation. Security groups with no inbound rules make the instances unreachable from the internet. Outbound internet works directly without a NAT Gateway.
+* **Brave Search key is not proxied** -- OpenClaw hardcodes the Brave Search endpoint URL (`https://api.search.brave.com`) with no configuration override. Routing it through the proxy would require TLS termination with a private CA issuing certificates for third-party domains, adding significant complexity. Since the Brave key only grants read access to web search results (no financial risk, no write operations), the risk of exposing it directly to the agent is acceptable. Set `BRAVE_API_KEY` as an environment variable on the agent server.
 
 ## Configuration
 
@@ -71,12 +72,6 @@ The proxy supports the following providers. Only providers with an API key set i
 | OpenRouter | `openrouter.ai` | `openrouter.proxy.vpc` | `Authorization: Bearer` header |
 | Venice | `api.venice.ai` | `venice.proxy.vpc` | `Authorization: Bearer` header |
 | Cerebras | `api.cerebras.ai` | `cerebras.proxy.vpc` | `Authorization: Bearer` header |
-
-**Search**
-
-| Provider | Domain | Subdomain | Key Injection |
-|---|---|---|---|
-| Brave Search | `api.search.brave.com` | `brave.proxy.vpc` | `X-Subscription-Token` header |
 
 **Starknet RPC Providers**
 
