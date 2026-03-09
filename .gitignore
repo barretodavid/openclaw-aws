@@ -5,3 +5,4 @@ cdk.out
 .claude
 .test-context.json
 openspec/changes
+cdk.context.json
