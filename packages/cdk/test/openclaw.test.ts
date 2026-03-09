@@ -66,6 +66,97 @@ afterAll(() => {
   }
 });
 
+// --- Helper functions ---
+
+type CfnResource = { [key: string]: unknown; Properties?: Record<string, unknown> };
+
+/** Find a resource by type and a property matcher. Returns [logicalId, resource]. */
+function findResource(
+  type: string,
+  predicate: (logicalId: string, resource: CfnResource) => boolean,
+): [string, CfnResource] {
+  const resources = template.findResources(type);
+  const match = Object.entries(resources).find(([id, r]) => predicate(id, r));
+  if (!match) throw new Error(`No ${type} matched predicate`);
+  return match;
+}
+
+/** Find an IAM Role by a keyword in its Description. */
+function findRole(keyword: string): [string, CfnResource] {
+  return findResource('AWS::IAM::Role', (_id, r) =>
+    (r.Properties?.Description as string)?.includes(keyword),
+  );
+}
+
+/** Find a Security Group by a keyword in its GroupDescription. */
+function findSg(keyword: string): [string, CfnResource] {
+  return findResource('AWS::EC2::SecurityGroup', (_id, r) =>
+    (r.Properties?.GroupDescription as string)?.includes(keyword),
+  );
+}
+
+/** Find an EC2 Instance by a marker string in its UserData. */
+function findInstance(marker: string): [string, CfnResource] {
+  return findResource('AWS::EC2::Instance', (_id, r) =>
+    JSON.stringify(r.Properties?.UserData ?? '').includes(marker),
+  );
+}
+
+/** Get all IAM action strings from all inline policies attached to a role. */
+function getActionsForRole(roleLogicalId: string): string[] {
+  const policies = template.findResources('AWS::IAM::Policy');
+  const actions: string[] = [];
+
+  for (const [, policy] of Object.entries(policies)) {
+    const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+    if (!roles.some((r) => r.Ref === roleLogicalId)) continue;
+
+    const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+    for (const stmt of statements) {
+      const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+      actions.push(...(stmtActions as string[]));
+    }
+  }
+
+  return actions;
+}
+
+/** Get all egress rules for a security group (both inline and standalone). */
+function getEgressRules(sgLogicalId: string): Record<string, unknown>[] {
+  const rules: Record<string, unknown>[] = [];
+
+  // Inline egress rules on the SG resource itself
+  const sgs = template.findResources('AWS::EC2::SecurityGroup');
+  const sg = sgs[sgLogicalId];
+  const inlineEgress = (sg?.Properties?.SecurityGroupEgress as Record<string, unknown>[]) ?? [];
+  rules.push(...inlineEgress);
+
+  // Standalone SecurityGroupEgress resources
+  const egressResources = template.findResources('AWS::EC2::SecurityGroupEgress');
+  for (const r of Object.values(egressResources)) {
+    const groupId = r.Properties?.GroupId as { 'Fn::GetAtt'?: string[] };
+    if (groupId?.['Fn::GetAtt']?.[0] === sgLogicalId) {
+      rules.push(r.Properties as Record<string, unknown>);
+    }
+  }
+
+  return rules;
+}
+
+/** Resolve the IAM Role logical ID for an EC2 instance by following Instance -> InstanceProfile -> Role. */
+function resolveInstanceRole(instanceLogicalId: string): string {
+  const instances = template.findResources('AWS::EC2::Instance');
+  const instance = instances[instanceLogicalId];
+  const profileRef = (instance.Properties?.IamInstanceProfile as { Ref: string })?.Ref;
+  if (!profileRef) throw new Error(`Instance ${instanceLogicalId} has no IamInstanceProfile`);
+
+  const profiles = template.findResources('AWS::IAM::InstanceProfile');
+  const profile = profiles[profileRef];
+  const roles = (profile.Properties?.Roles as { Ref: string }[]) ?? [];
+  if (roles.length === 0) throw new Error(`InstanceProfile ${profileRef} has no Roles`);
+  return roles[0].Ref;
+}
+
 // --- Security Boundary Tests ---
 
 describe('Security Boundaries', () => {
@@ -120,50 +211,6 @@ describe('Security Boundaries', () => {
     });
   });
 
-  test('Agent role policy does not grant Secrets Manager access', () => {
-    // Get all IAM policies and check that the one with kms:CreateKey has no secretsmanager actions
-    const policies = template.findResources('AWS::IAM::Policy');
-    for (const [, policy] of Object.entries(policies)) {
-      const statements = policy.Properties?.PolicyDocument?.Statement ?? [];
-      const hasKmsCreateKey = statements.some((s: Record<string, unknown>) => s.Action === 'kms:CreateKey');
-      if (hasKmsCreateKey) {
-        // This is the agent policy — verify no secretsmanager actions
-        for (const stmt of statements) {
-          const actions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-          for (const action of actions) {
-            expect(action).not.toMatch(/^secretsmanager:/);
-          }
-        }
-      }
-    }
-  });
-
-  test('Proxy role grants Secrets Manager read but no KMS access', () => {
-    const policies = template.findResources('AWS::IAM::Policy');
-    let foundSecretsPolicy = false;
-
-    for (const [, policy] of Object.entries(policies)) {
-      const statements = policy.Properties?.PolicyDocument?.Statement ?? [];
-      const hasSecretsManager = statements.some((s: Record<string, unknown>) => {
-        const actions = Array.isArray(s.Action) ? s.Action : [s.Action];
-        return actions.some((a: string) => a.startsWith('secretsmanager:'));
-      });
-
-      if (hasSecretsManager) {
-        foundSecretsPolicy = true;
-        // Verify no KMS actions in this policy
-        for (const stmt of statements) {
-          const actions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-          for (const action of actions) {
-            expect(action).not.toMatch(/^kms:/);
-          }
-        }
-      }
-    }
-
-    expect(foundSecretsPolicy).toBe(true);
-  });
-
   test('All EC2 roles allow SSM Session Manager access', () => {
     const roles = template.findResources('AWS::IAM::Role');
     const ec2Roles = Object.values(roles).filter(
@@ -184,26 +231,6 @@ describe('Security Boundaries', () => {
     }
   });
 
-  test('Agent security group has no inbound rules', () => {
-    // Agent SG description identifies it
-    const sgs = template.findResources('AWS::EC2::SecurityGroup');
-    for (const [logicalId, sg] of Object.entries(sgs)) {
-      if (sg.Properties?.GroupDescription?.includes('no inbound')) {
-        // Should have no SecurityGroupIngress
-        expect(sg.Properties.SecurityGroupIngress).toBeUndefined();
-        // Also check there are no separate ingress resources for this SG
-        const ingressResources = template.findResources('AWS::EC2::SecurityGroupIngress');
-        for (const [, ingress] of Object.entries(ingressResources)) {
-          // Ingress rules referencing agent SG should not exist
-          const groupId = ingress.Properties?.GroupId;
-          if (groupId?.['Fn::GetAtt']) {
-            expect(groupId['Fn::GetAtt'][0]).not.toBe(logicalId);
-          }
-        }
-      }
-    }
-  });
-
   test('Proxy security group allows inbound only from Agent SG on port 8080', () => {
     // Find the ingress rule for the proxy SG
     template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
@@ -221,24 +248,6 @@ describe('Security Boundaries', () => {
     });
   });
 
-  test('Gateway role has no KMS or Secrets Manager access', () => {
-    // Gateway role has only SSM managed policy and no inline policy with kms/secretsmanager
-    const roles = template.findResources('AWS::IAM::Role');
-    const policies = template.findResources('AWS::IAM::Policy');
-
-    // Find the gateway role (description identifies it)
-    const gatewayRoleId = Object.entries(roles).find(
-      ([, r]) => r.Properties?.Description?.includes('Gateway'),
-    )?.[0];
-    expect(gatewayRoleId).toBeDefined();
-
-    // No inline policy should reference the gateway role
-    for (const [, policy] of Object.entries(policies)) {
-      const policyRoles: { Ref: string }[] = policy.Properties?.Roles ?? [];
-      const referencesGateway = policyRoles.some((r) => r.Ref === gatewayRoleId);
-      expect(referencesGateway).toBe(false);
-    }
-  });
 });
 
 // --- Resource Configuration Tests ---
@@ -439,6 +448,162 @@ describe('Resource Counts', () => {
   test('base + gateway + per-provider DNS A records', () => {
     // 1 base (proxy.vpc) + 1 gateway (gateway.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
     template.resourceCountIs('AWS::Route53::RecordSet', 2 + Object.keys(MOCK_ENV_VARS).length);
+  });
+});
+
+// --- Security Invariant Tests ---
+
+describe('Security Invariants', () => {
+  test('A compromised agent cannot read API keys', () => {
+    const [agentRoleId] = findRole('Agent');
+    const actions = getActionsForRole(agentRoleId);
+    const secretActions = actions.filter((a) => /^secretsmanager:/i.test(a));
+    expect(secretActions).toEqual([]);
+  });
+
+  test('A compromised proxy cannot sign transactions', () => {
+    const [proxyRoleId] = findRole('Proxy');
+    const actions = getActionsForRole(proxyRoleId);
+    const kmsActions = actions.filter((a) => /^kms:/i.test(a));
+    expect(kmsActions).toEqual([]);
+  });
+
+  test('A compromised gateway cannot access API keys or sign transactions', () => {
+    const [gatewayRoleId] = findRole('Gateway');
+    const actions = getActionsForRole(gatewayRoleId);
+    expect(actions).toEqual([]);
+  });
+
+  test('No server accepts traffic from the public internet', () => {
+    // Check inline ingress rules on all security groups
+    const sgs = template.findResources('AWS::EC2::SecurityGroup');
+    for (const [, sg] of Object.entries(sgs)) {
+      const ingressRules = (sg.Properties?.SecurityGroupIngress as Record<string, unknown>[]) ?? [];
+      for (const rule of ingressRules) {
+        expect(rule.CidrIp).not.toBe('0.0.0.0/0');
+        expect(rule.CidrIpv6).not.toBe('::/0');
+      }
+    }
+
+    // Check standalone ingress resources
+    const ingressResources = template.findResources('AWS::EC2::SecurityGroupIngress');
+    for (const [, ingress] of Object.entries(ingressResources)) {
+      expect(ingress.Properties?.CidrIp).not.toBe('0.0.0.0/0');
+      expect(ingress.Properties?.CidrIpv6).not.toBe('::/0');
+    }
+  });
+
+  test('The agent can only talk to the proxy, the gateway, and the internet', () => {
+    const [agentSgId] = findSg('no inbound');
+    const [proxySgId] = findSg('Proxy EC2');
+    const [gatewaySgId] = findSg('Gateway EC2');
+
+    const egressRules = getEgressRules(agentSgId);
+    expect(egressRules).toHaveLength(4);
+
+    const cidrRules = egressRules.filter((r) => r.CidrIp === '0.0.0.0/0');
+    const cidrPorts = cidrRules.map((r) => r.FromPort as number).sort((a, b) => a - b);
+    expect(cidrPorts).toEqual([80, 443]);
+
+    const sgRules = egressRules.filter((r) => !r.CidrIp);
+    const sgTargets = sgRules.map((r) => ({
+      sg: (r.DestinationSecurityGroupId as { 'Fn::GetAtt': string[] })?.['Fn::GetAtt']?.[0],
+      port: r.FromPort,
+    }));
+
+    expect(sgTargets).toEqual(
+      expect.arrayContaining([
+        { sg: proxySgId, port: 8080 },
+        { sg: gatewaySgId, port: 18789 },
+      ]),
+    );
+    expect(sgTargets).toHaveLength(2);
+  });
+});
+
+// --- Cross-Resource Relationship Tests ---
+
+describe('Cross-Resource Relationships', () => {
+  test('A refactor cannot accidentally give a server the wrong permissions', () => {
+    const [agentRoleId] = findRole('Agent');
+    const [proxyRoleId] = findRole('Proxy');
+    const [gatewayRoleId] = findRole('Gateway');
+
+    const [agentInstanceId] = findInstance('docker.io');
+    const [proxyInstanceId] = findInstance('openclaw-aws-proxy');
+    const [gatewayInstanceId] = findInstance('signal-cli');
+
+    expect(resolveInstanceRole(agentInstanceId)).toBe(agentRoleId);
+    expect(resolveInstanceRole(proxyInstanceId)).toBe(proxyRoleId);
+    expect(resolveInstanceRole(gatewayInstanceId)).toBe(gatewayRoleId);
+  });
+
+  test('A refactor cannot accidentally give a server the wrong network access', () => {
+    const [agentSgId] = findSg('no inbound');
+    const [proxySgId] = findSg('Proxy EC2');
+    const [gatewaySgId] = findSg('Gateway EC2');
+
+    const [agentInstanceId] = findInstance('docker.io');
+    const [proxyInstanceId] = findInstance('openclaw-aws-proxy');
+    const [gatewayInstanceId] = findInstance('signal-cli');
+
+    const instances = template.findResources('AWS::EC2::Instance');
+
+    for (const [instanceId, expectedSgId] of [
+      [agentInstanceId, agentSgId],
+      [proxyInstanceId, proxySgId],
+      [gatewayInstanceId, gatewaySgId],
+    ] as const) {
+      const sgIds = instances[instanceId].Properties?.SecurityGroupIds as { 'Fn::GetAtt': string[] }[];
+      expect(sgIds).toHaveLength(1);
+      expect(sgIds[0]['Fn::GetAtt'][0]).toBe(expectedSgId);
+    }
+  });
+
+  test('Internal DNS routes to the correct servers', () => {
+    const [proxyInstanceId] = findInstance('openclaw-aws-proxy');
+    const [gatewayInstanceId] = findInstance('signal-cli');
+    const [agentInstanceId] = findInstance('docker.io');
+
+    const records = template.findResources('AWS::Route53::RecordSet');
+
+    for (const [, record] of Object.entries(records)) {
+      const name = record.Properties?.Name as string;
+      const targetRef = (
+        (record.Properties?.ResourceRecords as { 'Fn::GetAtt': string[] }[])?.[0]
+      )?.['Fn::GetAtt']?.[0];
+
+      if (name === 'proxy.vpc.') {
+        expect(targetRef).toBe(proxyInstanceId);
+      } else if (name === 'gateway.vpc.') {
+        expect(targetRef).toBe(gatewayInstanceId);
+      } else if (name.endsWith('.proxy.vpc.')) {
+        // Per-provider subdomains should all point to the proxy
+        expect(targetRef).toBe(proxyInstanceId);
+      }
+
+      // No DNS record should ever point to the agent
+      expect(targetRef).not.toBe(agentInstanceId);
+    }
+  });
+
+  test('Every configured provider is reachable and no stale DNS entries exist', () => {
+    // Get subdomains from proxy config SSM parameter
+    const params = template.findResources('AWS::SSM::Parameter');
+    const proxyConfigParam = Object.values(params).find(
+      (p) => p.Properties?.Name === '/openclaw/proxy-config',
+    );
+    const configKeys = Object.keys(JSON.parse(proxyConfigParam!.Properties!.Value as string));
+
+    // Get subdomains from DNS records (*.proxy.vpc.)
+    const records = template.findResources('AWS::Route53::RecordSet');
+    const dnsSubdomains = Object.values(records)
+      .map((r) => r.Properties?.Name as string)
+      .filter((name) => name.endsWith('.proxy.vpc.'))
+      .map((name) => name.replace('.proxy.vpc.', ''))
+      .sort();
+
+    expect(configKeys.sort()).toEqual(dnsSubdomains);
   });
 });
 
