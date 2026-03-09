@@ -1,0 +1,23 @@
+schema: spec-driven
+
+context: |
+  Tech stack: TypeScript, AWS CDK v2, pnpm workspaces
+  Package manager: pnpm
+  Testing: Jest with CDK assertions library
+  Infrastructure: 3 EC2 instances (Agent, Proxy, Gateway) with IAM role separation
+  Security model: Per-server IAM roles enforce least privilege (agent cannot read API keys, proxy cannot sign transactions, gateway has neither)
+  Key services: KMS (ECC_NIST_P256 wallet), Secrets Manager (API keys), Route 53 (private DNS), SSM (proxy config)
+  Deployment: CDK synth/deploy with .env-driven provider configuration
+
+rules:
+  specs:
+    - Focus on security boundaries and observable infrastructure behavior
+    - Requirements MUST be verifiable via CDK template assertions or runtime observation
+    - Do not duplicate what existing Jest tests already cover; specs describe intent, tests verify implementation
+    - Use SHALL/MUST keywords per OpenSpec conventions
+  design:
+    - Document AWS service interactions and IAM permission boundaries
+    - Prefer CDK L2 constructs over L1 (Cfn) constructs
+  tasks:
+    - Include CDK synth verification after infrastructure changes
+    - Include test updates when security boundaries change

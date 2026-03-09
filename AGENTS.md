@@ -35,4 +35,18 @@ Secure AWS infrastructure for an OpenClaw agent, defined using AWS CDK in TypeSc
 * The KMS wallet key has `removalPolicy: DESTROY` — see the tear down warning in README.md
 * The `.env` file must never be committed (it's in `.gitignore`)
 * AWS resource descriptions must use ASCII-only characters (no em dashes, special characters)
-* When researching GitHub repos, prefer `gh search code` over `gh api` — search is read-only and auto-approved, while `gh api` can write and should require user confirmation
+* When researching GitHub repos, prefer `gh api --method GET` for detailed lookups (PR comments, check runs, file contents, etc.) and `gh search` for keyword discovery — both are read-only and auto-approved. Never use `gh api` without `--method GET` unless the user explicitly asks for a write operation.
+
+## Specifications
+
+This project uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development.
+
+* `openspec/specs/` — source of truth for current system behavior (6 domains: security, agent-server, proxy, gateway, networking, deployment)
+* `openspec/changes/` — proposed modifications (use `/opsx:propose` to create)
+* `openspec/config.yaml` — project context for AI assistants
+
+### Workflow for new features
+
+1. **Propose:** `git checkout -b spec/<feature>` then `/opsx:propose <feature-name>` then open PR for spec review
+2. **Implement:** After spec approval, `/opsx:apply` to implement from the spec
+3. **Archive:** After merge, `/opsx:archive` to finalize and merge delta specs into `openspec/specs/`
