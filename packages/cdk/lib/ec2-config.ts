@@ -29,13 +29,18 @@ export const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
 
 // --- Ubuntu User Data ---
 
-/** Shared Ubuntu 24.04 user data: Node.js 22, unattended-upgrades with auto-reboot. */
+/** Shared Ubuntu 24.04 user data: Node.js 22, AWS CLI v2, unattended-upgrades with auto-reboot. */
 export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
-  const aptPackages = [...extraAptPackages, 'nodejs', 'unattended-upgrades'].join(' ');
+  const aptPackages = [...extraAptPackages, 'unzip', 'nodejs', 'unattended-upgrades'].join(' ');
   return [
     'apt-get update -y',
     'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -',
     `apt-get install -y ${aptPackages}`,
+    // AWS CLI v2 (official installer)
+    'curl -fsSL -o /tmp/awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip',
+    'unzip -q /tmp/awscliv2.zip -d /tmp',
+    '/tmp/aws/install',
+    'rm -rf /tmp/awscliv2.zip /tmp/aws',
     // Automatic daily security upgrades with reboot at 03:00 UTC when needed
     [
       "cat > /etc/apt/apt.conf.d/20auto-upgrades << 'EOF'",
@@ -91,14 +96,9 @@ export function resolveAgentMachine(
       { os: ec2.OperatingSystemType.LINUX },
     ),
     userDataCommands: [
-      ...ubuntuBaseUserData(['docker.io', 'unzip']),
+      ...ubuntuBaseUserData(['docker.io']),
       'systemctl enable docker',
       'systemctl start docker',
-      // AWS CLI v2 (official installer)
-      'curl -fsSL -o /tmp/awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip',
-      'unzip -q /tmp/awscliv2.zip -d /tmp',
-      '/tmp/aws/install',
-      'rm -rf /tmp/awscliv2.zip /tmp/aws',
       // npm global prefix for ubuntu user (avoids sudo for npm install -g)
       'sudo -u ubuntu mkdir -p /home/ubuntu/.npm-global',
       'sudo -u ubuntu npm config set prefix /home/ubuntu/.npm-global',

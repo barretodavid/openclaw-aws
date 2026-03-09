@@ -3,3 +3,5 @@ dist
 cdk.out
 .env
 .claude
+.test-context.json
+openspec/changes

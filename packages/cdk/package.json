@@ -8,6 +8,7 @@
   "scripts": {
     "typecheck": "tsc",
     "test": "jest",
+    "test:unit": "jest",
     "deploy": "cdk deploy",
     "synth": "cdk synth",
     "cleanup-wallet-keys": "ts-node scripts/cleanup-wallet-keys.ts",

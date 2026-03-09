@@ -13,8 +13,8 @@ The Agent EC2 instance SHALL be provisioned with Docker, Node.js, and AWS CLI.
 #### Scenario: Software provisioning
 
 - **WHEN** the Agent instance boots
-- **THEN** it SHALL install Docker, Node.js 22, unzip, and unattended-upgrades via apt
-- **AND** it SHALL install AWS CLI v2 from the official installer
+- **THEN** it SHALL install Docker, Node.js 22, unzip, AWS CLI v2, and unattended-upgrades via user data
+- **AND** AWS CLI v2 and unzip SHALL be provisioned by the shared base user data (not agent-specific config)
 - **AND** Docker SHALL be enabled and started via systemd
 - **AND** the ubuntu user SHALL be added to the docker group
 

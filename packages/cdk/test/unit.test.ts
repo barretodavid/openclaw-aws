@@ -300,6 +300,7 @@ describe('Resource Configuration', () => {
       const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
       if (userDataStr.includes('signal-cli')) {
         expect(userDataStr).toContain('-C /usr/local/bin');
+        expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
         // Gateway should NOT have Docker or proxy
         expect(userDataStr).not.toContain('docker');
         expect(userDataStr).not.toContain('openclaw-aws-proxy');
@@ -319,7 +320,8 @@ describe('Resource Configuration', () => {
       // Disambiguate proxy from gateway (both t3a.nano) by checking for proxy-specific content
       if (userDataStr.includes('openclaw-aws-proxy')) {
         expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
-        expect(userDataStr).toContain('apt-get install -y nodejs unattended-upgrades');
+        expect(userDataStr).toContain('apt-get install -y unzip nodejs unattended-upgrades');
+        expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
         expect(userDataStr).toContain('systemctl enable openclaw-proxy');
         expect(userDataStr).toContain('systemctl start openclaw-proxy');
         foundProxyUserData = true;

@@ -8,7 +8,7 @@ new OpenclawStack(app, 'OpenclawStack', {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,
   },
-  availabilityZone: 'ca-central-1b',
+  availabilityZone: process.env.CDK_AVAILABILITY_ZONE ?? 'ca-central-1b',
   agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
   proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
   gatewayInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),

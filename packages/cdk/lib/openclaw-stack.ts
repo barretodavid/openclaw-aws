@@ -45,11 +45,12 @@ export class OpenclawStack extends cdk.Stack {
 
     const proxySg = new ec2.SecurityGroup(this, 'ProxySg', {
       vpc,
-      description: 'Proxy EC2 - inbound from Agent on proxy port, outbound HTTPS',
+      description: 'Proxy EC2 - inbound from Agent on proxy port, outbound HTTPS and HTTP',
       allowAllOutbound: false,
     });
     proxySg.addIngressRule(agentSg, ec2.Port.tcp(PROXY_PORT), 'Agent to Proxy');
     proxySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS to LLM provider');
+    proxySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
 
     const gatewaySg = new ec2.SecurityGroup(this, 'GatewaySg', {
       vpc,
