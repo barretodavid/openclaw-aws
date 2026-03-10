@@ -5,7 +5,7 @@ import { TEST_REGION } from './config';
 const ctx = readContext();
 
 describe('IAM Boundary Verification', () => {
-  test('Agent cannot read API keys from Secrets Manager', async () => {
+  test('Agent Server cannot read API keys from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.agentInstanceId,
       `aws secretsmanager get-secret-value --secret-id test-nonexistent --region ${TEST_REGION} 2>&1 || true`,
@@ -15,9 +15,9 @@ describe('IAM Boundary Verification', () => {
     expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
   });
 
-  test('Proxy cannot sign with KMS', async () => {
+  test('Proxy Server cannot sign with KMS', async () => {
     const result = await runCommand(
-      ctx.proxyInstanceId,
+      ctx.proxyServerInstanceId,
       `aws kms sign --key-id alias/test-nonexistent --message "test" --signing-algorithm ECDSA_SHA_256 --message-type RAW --region ${TEST_REGION} 2>&1 || true`,
     );
 
@@ -25,9 +25,9 @@ describe('IAM Boundary Verification', () => {
     expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
   });
 
-  test('Gateway cannot read API keys from Secrets Manager', async () => {
+  test('Gateway Server cannot read API keys from Secrets Manager', async () => {
     const result = await runCommand(
-      ctx.gatewayInstanceId,
+      ctx.gatewayServerInstanceId,
       `aws secretsmanager get-secret-value --secret-id test-nonexistent --region ${TEST_REGION} 2>&1 || true`,
     );
 
@@ -35,9 +35,9 @@ describe('IAM Boundary Verification', () => {
     expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
   });
 
-  test('Gateway cannot sign with KMS', async () => {
+  test('Gateway Server cannot sign with KMS', async () => {
     const result = await runCommand(
-      ctx.gatewayInstanceId,
+      ctx.gatewayServerInstanceId,
       `aws kms sign --key-id alias/test-nonexistent --message "test" --signing-algorithm ECDSA_SHA_256 --message-type RAW --region ${TEST_REGION} 2>&1 || true`,
     );
 

@@ -41,7 +41,7 @@ Secure AWS infrastructure for an OpenClaw agent, defined using AWS CDK in TypeSc
 
 This project uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for spec-driven development.
 
-* `openspec/specs/` — source of truth for current system behavior (6 domains: security, agent-server, proxy, gateway, networking, deployment)
+* `openspec/specs/` — source of truth for current system behavior (6 domains: security, agent-server, proxy-server, gateway-server, networking, deployment)
 * `openspec/changes/` — proposed modifications (use `/opsx:propose` to create)
 * `openspec/config.yaml` — project context for AI assistants
 

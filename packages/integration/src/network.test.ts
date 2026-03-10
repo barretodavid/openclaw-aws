@@ -4,7 +4,7 @@ import { runCommand } from './ssm-helper';
 const ctx = readContext();
 
 describe('Network Connectivity Verification', () => {
-  test('Agent can reach Proxy health endpoint', async () => {
+  test('Agent Server can reach Proxy Server health endpoint', async () => {
     const result = await runCommand(
       ctx.agentInstanceId,
       'curl -s -o /dev/null -w "%{http_code}" http://proxy.vpc:8080/health',
@@ -13,7 +13,7 @@ describe('Network Connectivity Verification', () => {
     expect(result.stdout.trim()).toBe('200');
   });
 
-  test('Agent can reach Gateway on port 18789', async () => {
+  test('Agent Server can reach Gateway Server on port 18789', async () => {
     // Connection refused means the network path is open (SG allows it)
     // but nothing is listening. Timeout means SG blocked it.
     const result = await runCommand(
@@ -31,9 +31,9 @@ describe('Network Connectivity Verification', () => {
 });
 
 describe('Network Isolation Verification', () => {
-  test('Gateway cannot connect to Proxy on port 8080', async () => {
+  test('Gateway Server cannot connect to Proxy Server on port 8080', async () => {
     const result = await runCommand(
-      ctx.gatewayInstanceId,
+      ctx.gatewayServerInstanceId,
       'timeout 5 bash -c "echo > /dev/tcp/proxy.vpc/8080" 2>&1; echo "EXIT:$?"',
     );
 
@@ -43,9 +43,9 @@ describe('Network Isolation Verification', () => {
     expect(blocked).toBe(true);
   });
 
-  test('Proxy cannot connect to Gateway on port 18789', async () => {
+  test('Proxy Server cannot connect to Gateway Server on port 18789', async () => {
     const result = await runCommand(
-      ctx.proxyInstanceId,
+      ctx.proxyServerInstanceId,
       'timeout 5 bash -c "echo > /dev/tcp/gateway.vpc/18789" 2>&1; echo "EXIT:$?"',
     );
 

@@ -103,6 +103,7 @@ The project SHALL use pnpm workspaces with three packages.
 
 - **GIVEN** the project root package.json
 - **THEN** `test` SHALL run unit tests only
+- **AND** `test:unit` SHALL run unit tests across all workspaces that define a `test:unit` script (using `pnpm -r run test:unit`)
 - **AND** `test:all` SHALL run unit tests then integration CI sequentially
 - **AND** `test:integration:deploy` SHALL deploy the test stack
 - **AND** `test:integration:run` SHALL run integration tests against an existing stack

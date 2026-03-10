@@ -4,7 +4,7 @@
   "scripts": {
     "test": "pnpm run test:unit",
     "test:all": "pnpm run test:unit && pnpm run test:integration:ci",
-    "test:unit": "pnpm --filter openclaw-cdk run test:unit",
+    "test:unit": "pnpm -r run test:unit",
     "test:integration:deploy": "pnpm --filter integration run test:deploy",
     "test:integration:run": "pnpm --filter integration run test:run",
     "test:integration:destroy": "pnpm --filter integration run test:destroy",
@@ -16,11 +16,13 @@
     "publish:proxy": "pnpm --filter openclaw-aws-proxy publish"
   },
   "devDependencies": {
-    "@tsconfig/node22": "^22.0.5",
-    "@types/jest": "^30",
-    "@types/node": "^22",
-    "jest": "^30",
-    "ts-jest": "^29",
-    "typescript": "~5.9.3"
+    "@tsconfig/node22": "22.0.5",
+    "@types/jest": "29.5.14",
+    "@types/node": "22.19.13",
+    "dotenv": "17.3.1",
+    "jest": "29.7.0",
+    "ts-jest": "29.4.6",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3"
   }
 }

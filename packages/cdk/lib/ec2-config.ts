@@ -108,7 +108,7 @@ export function resolveAgentMachine(
       'echo \'export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1\' > /etc/profile.d/openclaw.sh',
       // Enable systemd user instance for ubuntu (persists user services without login)
       'loginctl enable-linger ubuntu',
-      // Pre-install OpenClaw (no auto-start -- gateway depends on manual signal-cli setup, agent depends on gateway)
+      // Pre-install OpenClaw (no auto-start -- gateway server depends on manual signal-cli setup, agent depends on gateway server)
       'sudo -u ubuntu npm install -g openclaw',
     ],
     defaultUser: 'ubuntu',

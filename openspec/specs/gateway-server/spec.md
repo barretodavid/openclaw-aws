@@ -50,5 +50,5 @@ The Gateway instance SHALL default to t3a.small (2 GB RAM) to support npm packag
 
 #### Scenario: Default instance type
 
-- **WHEN** no custom `gatewayInstanceType` is specified
+- **WHEN** no custom `gatewayServerInstanceType` is specified
 - **THEN** the Gateway instance SHALL use t3a.small

@@ -1,6 +1,6 @@
 # OpenClaw Safe Agent Infrastructure
 
-Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS), provider API keys (via Secrets Manager), and channel credentials (via gateway isolation) so that even a compromised agent cannot extract them.
+Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS), provider API keys (via Secrets Manager), and channel credentials (via gateway server isolation) so that even a compromised agent cannot extract them.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ graph LR
         DNS["Route 53<br/>Private Hosted Zone<br/>(*.proxy.vpc, gateway.vpc)"]
         AgentEC2["Agent Server<br/>(EC2, configurable)"]
         GatewayEC2["Gateway Server<br/>(EC2 t3a.nano)"]
-        ProxyEC2["API Proxy<br/>(EC2 t3a.nano)"]
+        ProxyEC2["Proxy Server<br/>(EC2 t3a.nano)"]
         AgentEC2 -->|"WebSocket<br/>(ws://gateway.vpc:18789)"| GatewayEC2
         AgentEC2 -->|"request via subdomain<br/>(anthropic.proxy.vpc:8080)"| ProxyEC2
     end
@@ -130,26 +130,26 @@ npx cdk deploy
 
 CDK will show the resources to be created and ask for confirmation. After deployment, the stack outputs will display:
 
-* **AgentInstanceId** -- Agent EC2 instance ID
-* **GatewayInstanceId** -- Gateway EC2 instance ID
-* **GatewayPrivateIp** -- Gateway private IP (agent connects via `ws://gateway.vpc:18789`)
-* **ProxyInstanceId** -- Proxy EC2 instance ID
-* **ProxyPrivateIp** -- Proxy private IP (agent reaches proxy via `http://proxy.vpc:8080` or per-provider subdomains like `http://anthropic.proxy.vpc:8080`)
-* **ProxyConfigParameter** -- SSM Parameter name for the proxy provider mapping
+* **AgentServerInstanceId** -- Agent Server EC2 instance ID
+* **GatewayServerInstanceId** -- Gateway Server EC2 instance ID
+* **GatewayServerPrivateIp** -- Gateway Server private IP (agent connects via `ws://gateway.vpc:18789`)
+* **ProxyServerInstanceId** -- Proxy Server EC2 instance ID
+* **ProxyServerPrivateIp** -- Proxy Server private IP (agent reaches proxy via `http://proxy.vpc:8080` or per-provider subdomains like `http://anthropic.proxy.vpc:8080`)
+* **ProxyServerConfigParameter** -- SSM Parameter name for the proxy server provider mapping
 
 ## Connect to instances
 
 Use SSM Session Manager (no SSH keys needed):
 
 ```bash
-# Connect to the Agent EC2
-aws ssm start-session --target <AgentInstanceId> --document-name ubuntu
+# Connect to the Agent Server EC2
+aws ssm start-session --target <AgentServerInstanceId> --document-name ubuntu
 
-# Connect to the Gateway EC2
-aws ssm start-session --target <GatewayInstanceId> --document-name ubuntu
+# Connect to the Gateway Server EC2
+aws ssm start-session --target <GatewayServerInstanceId> --document-name ubuntu
 
-# Connect to the Proxy EC2
-aws ssm start-session --target <ProxyInstanceId> --document-name ubuntu
+# Connect to the Proxy Server EC2
+aws ssm start-session --target <ProxyServerInstanceId> --document-name ubuntu
 ```
 
 ## Tear down

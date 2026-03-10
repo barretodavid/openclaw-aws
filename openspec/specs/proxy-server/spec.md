@@ -1,4 +1,4 @@
-# LLM API Proxy
+# Proxy Server
 
 ## Purpose
 
@@ -108,7 +108,7 @@ The Proxy SHALL support the following LLM and RPC providers.
 
 ### Requirement: Ubuntu User npm Prefix
 
-The Proxy instance SHALL install npm packages using the ubuntu user npm prefix, consistent with the Agent and Gateway instances.
+The Proxy Server instance SHALL install npm packages using the ubuntu user npm prefix, consistent with the Agent Server and Gateway Server instances.
 
 #### Scenario: npm prefix configuration
 
@@ -139,5 +139,5 @@ The Proxy instance SHALL default to t3a.micro (1 GB RAM) to support npm package 
 
 #### Scenario: Default instance type
 
-- **WHEN** no custom `proxyInstanceType` is specified
+- **WHEN** no custom `proxyServerInstanceType` is specified
 - **THEN** the Proxy instance SHALL use t3a.micro

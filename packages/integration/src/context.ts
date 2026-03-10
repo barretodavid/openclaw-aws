@@ -5,10 +5,10 @@ const CONTEXT_FILE = path.join(__dirname, '..', '.test-context.json');
 
 export interface TestContext {
   agentInstanceId: string;
-  proxyInstanceId: string;
-  gatewayInstanceId: string;
-  proxyPrivateIp: string;
-  gatewayPrivateIp: string;
+  proxyServerInstanceId: string;
+  gatewayServerInstanceId: string;
+  proxyServerPrivateIp: string;
+  gatewayServerPrivateIp: string;
 }
 
 export function writeContext(ctx: TestContext): void {

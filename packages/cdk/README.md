@@ -8,27 +8,27 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 |---|---|---|---|
 | Agent Server | EC2 (configurable, default t3a.large, 30 GB EBS) | Runs OpenClaw agent (no gateway) | Long-running process needs a persistent server; instance type is configurable in `bin/openclaw.ts` |
 | Gateway Server | EC2 (t3a.small, Ubuntu 24.04 LTS) | Runs OpenClaw gateway for channel integrations (Signal, Telegram) | Separate instance isolates channel credentials from agent; agent connects via WebSocket on port 18789; ~$14/month |
-| API Proxy | EC2 (t3a.micro, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$7/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
+| Proxy Server | EC2 (t3a.micro, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$7/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
 | Remote Access | SSM Session Manager | Shell access to all EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
-| Provider API Keys | Secrets Manager (one secret per provider) | Stores the real API key for each configured provider (e.g. `openclaw/anthropic-api-key`) | Encrypted at rest, fine-grained IAM access, supports rotation; only the Proxy EC2 can read them |
-| Proxy Config | SSM Parameter Store (String) | JSON mapping of provider subdomains to backend domains, secret names, and key injection methods | Free, not a secret, readable by the proxy at startup; stored at `/openclaw/proxy-config` |
-| Private DNS | Route 53 Private Hosted Zone (`vpc`) | `gateway.vpc` for gateway, per-provider records (e.g. `anthropic.proxy.vpc`) for proxy | Agent addresses services by hostname; proxy uses subdomain to look up provider config |
+| Provider API Keys | Secrets Manager (one secret per provider) | Stores the real API key for each configured provider (e.g. `openclaw/anthropic-api-key`) | Encrypted at rest, fine-grained IAM access, supports rotation; only the Proxy Server EC2 can read them |
+| Proxy Server Config | SSM Parameter Store (String) | JSON mapping of provider subdomains to backend domains, secret names, and key injection methods | Free, not a secret, readable by the proxy server at startup; stored at `/openclaw/proxy-config` |
+| Private DNS | Route 53 Private Hosted Zone (`vpc`) | `gateway.vpc` for gateway server, per-provider records (e.g. `anthropic.proxy.vpc`) for proxy server | Agent addresses services by hostname; proxy server uses subdomain to look up provider config |
 | Network | Default VPC, public subnets | Hosts all EC2 instances | No custom VPC or NAT Gateway needed; security comes from IAM/KMS boundaries and security groups (no inbound rules), not network isolation |
 
 ## Security Boundaries
 
 * Agent never sees real API keys -- it sends requests to provider subdomains (e.g. `anthropic.proxy.vpc:8080`) and the proxy injects the real key before forwarding
 * Agent never sees private key material -- signs via KMS `Sign` API only
-* Agent never sees channel credentials -- they are stored on the Gateway EC2 which has its own IAM role
-* **Agent EC2 IAM role** grants: `kms:Sign` on the wallet key + `AmazonSSMManagedInstanceCore` managed policy
-* **Gateway EC2 IAM role** grants: `AmazonSSMManagedInstanceCore` managed policy only (no KMS, no Secrets Manager)
-* **Proxy EC2 IAM role** grants: `secretsmanager:GetSecretValue` on each provider's API key secret + `ssm:GetParameter` on the proxy config parameter + `AmazonSSMManagedInstanceCore` managed policy
-* Proxy only forwards requests to providers present in the SSM proxy config -- rejects unknown subdomains
+* Agent never sees channel credentials -- they are stored on the Gateway Server EC2 which has its own IAM role
+* **Agent Server EC2 IAM role** grants: `kms:Sign` on the wallet key + `AmazonSSMManagedInstanceCore` managed policy
+* **Gateway Server EC2 IAM role** grants: `AmazonSSMManagedInstanceCore` managed policy only (no KMS, no Secrets Manager)
+* **Proxy Server EC2 IAM role** grants: `secretsmanager:GetSecretValue` on each provider's API key secret + `ssm:GetParameter` on the proxy server config parameter + `AmazonSSMManagedInstanceCore` managed policy
+* Proxy server only forwards requests to providers present in the SSM proxy config -- rejects unknown subdomains
 * Three separate EC2 instances = three separate IAM roles -- a compromised agent cannot access Secrets Manager or channel credentials
-* Gateway security group: inbound only from Agent EC2 security group on port 18789 (WebSocket); outbound HTTPS (443) for channel APIs (Signal, Telegram), HTTP (80) for apt
-* Proxy security group: inbound only from Agent EC2 security group on the proxy port; outbound HTTPS (443) for reaching providers
-* Agent security group: no inbound from internet; outbound HTTPS (443), HTTP (80 for package repos), port 8080 to proxy, port 18789 to gateway -- secrets are protected by IAM/KMS boundaries, not network restrictions
+* Gateway Server security group: inbound only from Agent Server EC2 security group on port 18789 (WebSocket); outbound HTTPS (443) for channel APIs (Signal, Telegram), HTTP (80) for apt
+* Proxy Server security group: inbound only from Agent Server EC2 security group on the proxy port; outbound HTTPS (443) for reaching providers
+* Agent Server security group: no inbound from internet; outbound HTTPS (443), HTTP (80 for package repos), port 8080 to proxy server, port 18789 to gateway server -- secrets are protected by IAM/KMS boundaries, not network restrictions
 
 ## Design Decisions
 
@@ -39,8 +39,8 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 * **Broad HTTPS egress for Agent EC2** -- Restricting the agent to specific IPs would limit its usefulness. The security model relies on IAM and KMS boundaries to protect secrets, not on network egress filtering. The agent has no IAM access to Secrets Manager, and the private key never leaves KMS.
 * **Transaction guardrails on-chain, not in AWS** -- KMS signs whatever hash is sent to it and cannot judge transaction intent. Instead of CloudTrail alerting (which only detects after the fact), spending limits, whitelisted addresses, rate limits, and time locks are enforced at the Starknet account contract level. This prevents malicious transactions at the protocol level even if the agent and KMS are fully compromised.
 * **Default VPC with public subnets, no NAT Gateway** -- Private subnets + NAT Gateway add ~$32/month and complexity for minimal security benefit. Our security model relies on IAM roles and KMS, not network isolation. Security groups with no inbound rules make the instances unreachable from the internet. Outbound internet works directly without a NAT Gateway.
-* **Separate gateway instance for channel credential isolation** -- Channel credentials (Signal phone registration, Telegram bot tokens) are high-value targets. Running the gateway on a separate EC2 instance with its own IAM role means a compromised agent cannot exfiltrate them. The agent communicates with the gateway over a plain WebSocket (`ws://gateway.vpc:18789`) within the VPC -- TLS is unnecessary since the threat model is software compromise (credential exfiltration), not network sniffing within the VPC.
-* **`OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` set by default** -- OpenClaw requires this env var to use plain `ws://` over non-loopback interfaces. Both the Agent and Gateway instances set it via `/etc/profile.d/openclaw.sh` in user data. This is safe because the gateway security group restricts inbound to the Agent SG on port 18789 only -- the SG is the access control layer, not WebSocket auth.
+* **Separate gateway server instance for channel credential isolation** -- Channel credentials (Signal phone registration, Telegram bot tokens) are high-value targets. Running the gateway on a separate EC2 instance with its own IAM role means a compromised agent cannot exfiltrate them. The agent communicates with the gateway server over a plain WebSocket (`ws://gateway.vpc:18789`) within the VPC -- TLS is unnecessary since the threat model is software compromise (credential exfiltration), not network sniffing within the VPC.
+* **`OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` set by default** -- OpenClaw requires this env var to use plain `ws://` over non-loopback interfaces. Both the Agent Server and Gateway Server instances set it via `/etc/profile.d/openclaw.sh` in user data. This is safe because the gateway server security group restricts inbound to the Agent SG on port 18789 only -- the SG is the access control layer, not WebSocket auth.
 * **Brave Search key is not proxied** -- OpenClaw hardcodes the Brave Search endpoint URL (`https://api.search.brave.com`) with no configuration override. Routing it through the proxy would require TLS termination with a private CA issuing certificates for third-party domains, adding significant complexity. Since the Brave key only grants read access to web search results (no financial risk, no write operations), the risk of exposing it directly to the agent is acceptable. Set `BRAVE_API_KEY` as an environment variable on the agent server.
 
 ## Configuration
@@ -52,19 +52,19 @@ new OpenclawStack(app, 'OpenclawStack', {
   // ...
   availabilityZone: 'ca-central-1b',
   agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
-  proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.MICRO),
-  gatewayInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.SMALL),
+  proxyServerInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.MICRO),
+  gatewayServerInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.SMALL),
   agentVolumeGb: 30,
 });
 ```
 
-Only x86_64 instance types are supported (e.g. t3a, t3, m5a, m7i). ARM/Graviton instance types (t4g, m7g, etc.) are not supported. All instances run Ubuntu 24.04 LTS with Node.js 22 and SSM Agent. The agent instance also has Docker and AWS CLI; the gateway instance has signal-cli.
+Only x86_64 instance types are supported (e.g. t3a, t3, m5a, m7i). ARM/Graviton instance types (t4g, m7g, etc.) are not supported. All instances run Ubuntu 24.04 LTS with Node.js 22 and SSM Agent. The agent server instance also has Docker and AWS CLI; the gateway server instance has signal-cli.
 
 All EC2 instances run `unattended-upgrades` for automatic daily security updates. If a kernel update requires a reboot, instances reboot automatically at 03:00 UTC.
 
 ## Supported providers
 
-The proxy supports the following providers. Only providers with an API key set in `.env` are deployed (secret + DNS record + proxy config entry):
+The proxy server supports the following providers. Only providers with an API key set in `.env` are deployed (secret + DNS record + proxy server config entry):
 
 **LLM Providers**
 

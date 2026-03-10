@@ -55,10 +55,10 @@ export default async function globalSetup(): Promise<void> {
 
   // Identify instances by IAM role
   let agentInstanceId = '';
-  let proxyInstanceId = '';
-  let gatewayInstanceId = '';
-  let proxyPrivateIp = '';
-  let gatewayPrivateIp = '';
+  let proxyServerInstanceId = '';
+  let gatewayServerInstanceId = '';
+  let proxyServerPrivateIp = '';
+  let gatewayServerPrivateIp = '';
 
   for (const instance of allInstances) {
     const iamProfile = instance.IamInstanceProfile?.Arn ?? '';
@@ -68,25 +68,25 @@ export default async function globalSetup(): Promise<void> {
     if (iamProfile.includes('Agent')) {
       agentInstanceId = id;
     } else if (iamProfile.includes('Proxy')) {
-      proxyInstanceId = id;
-      proxyPrivateIp = privateIp;
+      proxyServerInstanceId = id;
+      proxyServerPrivateIp = privateIp;
     } else if (iamProfile.includes('Gateway')) {
-      gatewayInstanceId = id;
-      gatewayPrivateIp = privateIp;
+      gatewayServerInstanceId = id;
+      gatewayServerPrivateIp = privateIp;
     }
   }
 
-  if (!agentInstanceId || !proxyInstanceId || !gatewayInstanceId) {
+  if (!agentInstanceId || !proxyServerInstanceId || !gatewayServerInstanceId) {
     throw new Error(
-      `Could not identify all instances. Agent: ${agentInstanceId}, Proxy: ${proxyInstanceId}, Gateway: ${gatewayInstanceId}`,
+      `Could not identify all instances. Agent: ${agentInstanceId}, Proxy Server: ${proxyServerInstanceId}, Gateway Server: ${gatewayServerInstanceId}`,
     );
   }
 
-  console.log(`Agent: ${agentInstanceId}, Proxy: ${proxyInstanceId}, Gateway: ${gatewayInstanceId}`);
+  console.log(`Agent: ${agentInstanceId}, Proxy Server: ${proxyServerInstanceId}, Gateway Server: ${gatewayServerInstanceId}`);
 
   // Wait for SSM agent readiness
   console.log('Waiting for SSM agent readiness...');
-  const instanceIds = [agentInstanceId, proxyInstanceId, gatewayInstanceId];
+  const instanceIds = [agentInstanceId, proxyServerInstanceId, gatewayServerInstanceId];
   const started = Date.now();
 
   while (Date.now() - started < MAX_READINESS_WAIT_MS) {
@@ -153,10 +153,10 @@ export default async function globalSetup(): Promise<void> {
 
   writeContext({
     agentInstanceId,
-    proxyInstanceId,
-    gatewayInstanceId,
-    proxyPrivateIp,
-    gatewayPrivateIp,
+    proxyServerInstanceId,
+    gatewayServerInstanceId,
+    proxyServerPrivateIp,
+    gatewayServerPrivateIp,
   });
 
   console.log('Global setup complete.\n');

@@ -9,8 +9,8 @@ import { resolveRegionConfig } from '../lib/region-config';
 const defaults = {
   availabilityZone: 'us-east-1a',
   agentInstanceType: new ec2.InstanceType('t3a.large'),
-  proxyInstanceType: new ec2.InstanceType('t3a.micro'),
-  gatewayInstanceType: new ec2.InstanceType('t3a.small'),
+  proxyServerInstanceType: new ec2.InstanceType('t3a.micro'),
+  gatewayServerInstanceType: new ec2.InstanceType('t3a.small'),
   agentVolumeGb: 30,
 };
 
@@ -232,8 +232,7 @@ describe('Security Boundaries', () => {
     }
   });
 
-  test('Proxy security group allows inbound only from Agent SG on port 8080', () => {
-    // Find the ingress rule for the proxy SG
+  test('Proxy Server security group allows inbound only from Agent SG on port 8080', () => {
     template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
       IpProtocol: 'tcp',
       FromPort: 8080,
@@ -241,7 +240,7 @@ describe('Security Boundaries', () => {
     });
   });
 
-  test('Gateway security group allows inbound only from Agent SG on port 18789', () => {
+  test('Gateway Server security group allows inbound only from Agent SG on port 18789', () => {
     template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
       IpProtocol: 'tcp',
       FromPort: 18789,
@@ -263,19 +262,19 @@ describe('Resource Configuration', () => {
     expect(imdsv2Templates).toHaveLength(3);
   });
 
-  test('Agent EC2 defaults to t3a.large', () => {
+  test('Agent Server EC2 defaults to t3a.large', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't3a.large',
     });
   });
 
-  test('Proxy EC2 is t3a.micro', () => {
+  test('Proxy Server EC2 is t3a.micro', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't3a.micro',
     });
   });
 
-  test('Agent EC2 user data installs Docker and Node.js via apt', () => {
+  test('Agent Server EC2 user data installs Docker and Node.js via apt', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let foundDockerUserData = false;
 
@@ -293,7 +292,7 @@ describe('Resource Configuration', () => {
     expect(foundDockerUserData).toBe(true);
   });
 
-  test('Gateway EC2 user data installs signal-cli', () => {
+  test('Gateway Server EC2 user data installs signal-cli', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let foundSignalCli = false;
 
@@ -302,7 +301,7 @@ describe('Resource Configuration', () => {
       if (userDataStr.includes('signal-cli')) {
         expect(userDataStr).toContain('-C /usr/local/bin');
         expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
-        // Gateway should NOT have Docker or proxy
+        // Gateway Server should NOT have Docker or proxy
         expect(userDataStr).not.toContain('docker');
         expect(userDataStr).not.toContain('openclaw-aws-proxy');
         foundSignalCli = true;
@@ -312,30 +311,30 @@ describe('Resource Configuration', () => {
     expect(foundSignalCli).toBe(true);
   });
 
-  test('Proxy EC2 user data installs Node.js and starts proxy service', () => {
+  test('Proxy Server EC2 user data installs Node.js and starts proxy service', () => {
     const instances = template.findResources('AWS::EC2::Instance');
-    let foundProxyUserData = false;
+    let foundProxyServerUserData = false;
 
     for (const [, instance] of Object.entries(instances)) {
       const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
-      // Disambiguate proxy from gateway by checking for proxy-specific content
+      // Disambiguate proxy server from gateway server by checking for proxy-specific content
       if (userDataStr.includes('openclaw-aws-proxy')) {
         expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
         expect(userDataStr).toContain('apt-get install -y unzip nodejs unattended-upgrades');
         expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
         expect(userDataStr).toContain('systemctl enable openclaw-proxy');
         expect(userDataStr).toContain('systemctl start openclaw-proxy');
-        foundProxyUserData = true;
+        foundProxyServerUserData = true;
       }
     }
 
-    expect(foundProxyUserData).toBe(true);
+    expect(foundProxyServerUserData).toBe(true);
   });
 
-  test('Agent and Gateway user data set OPENCLAW_ALLOW_INSECURE_PRIVATE_WS', () => {
+  test('Agent Server and Gateway Server user data set OPENCLAW_ALLOW_INSECURE_PRIVATE_WS', () => {
     const instances = template.findResources('AWS::EC2::Instance');
     let agentHasEnvVar = false;
-    let gatewayHasEnvVar = false;
+    let gatewayServerHasEnvVar = false;
 
     for (const [, instance] of Object.entries(instances)) {
       const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
@@ -345,12 +344,12 @@ describe('Resource Configuration', () => {
       }
       if (userDataStr.includes('signal-cli')) {
         expect(userDataStr).toContain('OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1');
-        gatewayHasEnvVar = true;
+        gatewayServerHasEnvVar = true;
       }
     }
 
     expect(agentHasEnvVar).toBe(true);
-    expect(gatewayHasEnvVar).toBe(true);
+    expect(gatewayServerHasEnvVar).toBe(true);
   });
 
   test('Private hosted zone exists with zone name vpc', () => {
@@ -359,14 +358,14 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('A record for proxy.vpc points to proxy instance', () => {
+  test('A record for proxy.vpc points to proxy server instance', () => {
     template.hasResourceProperties('AWS::Route53::RecordSet', {
       Name: 'proxy.vpc.',
       Type: 'A',
     });
   });
 
-  test('A record for gateway.vpc points to gateway instance', () => {
+  test('A record for gateway.vpc points to gateway server instance', () => {
     template.hasResourceProperties('AWS::Route53::RecordSet', {
       Name: 'gateway.vpc.',
       Type: 'A',
@@ -387,14 +386,14 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('Proxy config SSM parameter is keyed by subdomain with backendDomain', () => {
+  test('Proxy Server config SSM parameter is keyed by subdomain with backendDomain', () => {
     const params = template.findResources('AWS::SSM::Parameter');
-    const proxyConfigParam = Object.values(params).find(
+    const proxyServerConfigParam = Object.values(params).find(
       (p) => p.Properties?.Name === '/openclaw/proxy-config',
     );
-    expect(proxyConfigParam).toBeDefined();
+    expect(proxyServerConfigParam).toBeDefined();
 
-    const configStr = proxyConfigParam!.Properties.Value;
+    const configStr = proxyServerConfigParam!.Properties.Value;
     const config = JSON.parse(configStr);
 
     // Keyed by subdomain, not domain
@@ -407,7 +406,7 @@ describe('Resource Configuration', () => {
     expect(config.alchemy.api).toBeNull();
   });
 
-  test('Agent EC2 has 30 GB gp3 EBS volume', () => {
+  test('Agent Server EC2 has 30 GB gp3 EBS volume', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       BlockDeviceMappings: Match.arrayWith([
         Match.objectLike({
@@ -448,8 +447,8 @@ describe('Resource Counts', () => {
     template.resourceCountIs('AWS::SSM::Parameter', 1);
   });
 
-  test('base + gateway + per-provider DNS A records', () => {
-    // 1 base (proxy.vpc) + 1 gateway (gateway.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
+  test('base + gateway server + per-provider DNS A records', () => {
+    // 1 base (proxy.vpc) + 1 gateway server (gateway.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
     template.resourceCountIs('AWS::Route53::RecordSet', 2 + Object.keys(MOCK_ENV_VARS).length);
   });
 });
@@ -457,23 +456,23 @@ describe('Resource Counts', () => {
 // --- Security Invariant Tests ---
 
 describe('Security Invariants', () => {
-  test('A compromised agent cannot read API keys', () => {
-    const [agentRoleId] = findRole('Agent');
+  test('A compromised agent server cannot read API keys', () => {
+    const [agentRoleId] = findRole('Agent Server');
     const actions = getActionsForRole(agentRoleId);
     const secretActions = actions.filter((a) => /^secretsmanager:/i.test(a));
     expect(secretActions).toEqual([]);
   });
 
-  test('A compromised proxy cannot sign transactions', () => {
-    const [proxyRoleId] = findRole('Proxy');
-    const actions = getActionsForRole(proxyRoleId);
+  test('A compromised proxy server cannot sign transactions', () => {
+    const [proxyServerRoleId] = findRole('Proxy Server');
+    const actions = getActionsForRole(proxyServerRoleId);
     const kmsActions = actions.filter((a) => /^kms:/i.test(a));
     expect(kmsActions).toEqual([]);
   });
 
-  test('A compromised gateway cannot access API keys or sign transactions', () => {
-    const [gatewayRoleId] = findRole('Gateway');
-    const actions = getActionsForRole(gatewayRoleId);
+  test('A compromised gateway server cannot access API keys or sign transactions', () => {
+    const [gatewayServerRoleId] = findRole('Gateway Server');
+    const actions = getActionsForRole(gatewayServerRoleId);
     expect(actions).toEqual([]);
   });
 
@@ -496,10 +495,10 @@ describe('Security Invariants', () => {
     }
   });
 
-  test('The agent can only talk to the proxy, the gateway, and the internet', () => {
+  test('The agent server can only talk to the proxy server, the gateway server, and the internet', () => {
     const [agentSgId] = findSg('no inbound');
-    const [proxySgId] = findSg('Proxy EC2');
-    const [gatewaySgId] = findSg('Gateway EC2');
+    const [proxyServerSgId] = findSg('Proxy Server EC2');
+    const [gatewayServerSgId] = findSg('Gateway Server EC2');
 
     const egressRules = getEgressRules(agentSgId);
     expect(egressRules).toHaveLength(4);
@@ -516,8 +515,8 @@ describe('Security Invariants', () => {
 
     expect(sgTargets).toEqual(
       expect.arrayContaining([
-        { sg: proxySgId, port: 8080 },
-        { sg: gatewaySgId, port: 18789 },
+        { sg: proxyServerSgId, port: 8080 },
+        { sg: gatewayServerSgId, port: 18789 },
       ]),
     );
     expect(sgTargets).toHaveLength(2);
@@ -528,34 +527,34 @@ describe('Security Invariants', () => {
 
 describe('Cross-Resource Relationships', () => {
   test('A refactor cannot accidentally give a server the wrong permissions', () => {
-    const [agentRoleId] = findRole('Agent');
-    const [proxyRoleId] = findRole('Proxy');
-    const [gatewayRoleId] = findRole('Gateway');
+    const [agentRoleId] = findRole('Agent Server');
+    const [proxyServerRoleId] = findRole('Proxy Server');
+    const [gatewayServerRoleId] = findRole('Gateway Server');
 
     const [agentInstanceId] = findInstance('docker.io');
-    const [proxyInstanceId] = findInstance('openclaw-aws-proxy');
-    const [gatewayInstanceId] = findInstance('signal-cli');
+    const [proxyServerInstanceId] = findInstance('openclaw-aws-proxy');
+    const [gatewayServerInstanceId] = findInstance('signal-cli');
 
     expect(resolveInstanceRole(agentInstanceId)).toBe(agentRoleId);
-    expect(resolveInstanceRole(proxyInstanceId)).toBe(proxyRoleId);
-    expect(resolveInstanceRole(gatewayInstanceId)).toBe(gatewayRoleId);
+    expect(resolveInstanceRole(proxyServerInstanceId)).toBe(proxyServerRoleId);
+    expect(resolveInstanceRole(gatewayServerInstanceId)).toBe(gatewayServerRoleId);
   });
 
   test('A refactor cannot accidentally give a server the wrong network access', () => {
     const [agentSgId] = findSg('no inbound');
-    const [proxySgId] = findSg('Proxy EC2');
-    const [gatewaySgId] = findSg('Gateway EC2');
+    const [proxyServerSgId] = findSg('Proxy Server EC2');
+    const [gatewayServerSgId] = findSg('Gateway Server EC2');
 
     const [agentInstanceId] = findInstance('docker.io');
-    const [proxyInstanceId] = findInstance('openclaw-aws-proxy');
-    const [gatewayInstanceId] = findInstance('signal-cli');
+    const [proxyServerInstanceId] = findInstance('openclaw-aws-proxy');
+    const [gatewayServerInstanceId] = findInstance('signal-cli');
 
     const instances = template.findResources('AWS::EC2::Instance');
 
     for (const [instanceId, expectedSgId] of [
       [agentInstanceId, agentSgId],
-      [proxyInstanceId, proxySgId],
-      [gatewayInstanceId, gatewaySgId],
+      [proxyServerInstanceId, proxyServerSgId],
+      [gatewayServerInstanceId, gatewayServerSgId],
     ] as const) {
       const sgIds = instances[instanceId].Properties?.SecurityGroupIds as { 'Fn::GetAtt': string[] }[];
       expect(sgIds).toHaveLength(1);
@@ -564,8 +563,8 @@ describe('Cross-Resource Relationships', () => {
   });
 
   test('Internal DNS routes to the correct servers', () => {
-    const [proxyInstanceId] = findInstance('openclaw-aws-proxy');
-    const [gatewayInstanceId] = findInstance('signal-cli');
+    const [proxyServerInstanceId] = findInstance('openclaw-aws-proxy');
+    const [gatewayServerInstanceId] = findInstance('signal-cli');
     const [agentInstanceId] = findInstance('docker.io');
 
     const records = template.findResources('AWS::Route53::RecordSet');
@@ -577,26 +576,26 @@ describe('Cross-Resource Relationships', () => {
       )?.['Fn::GetAtt']?.[0];
 
       if (name === 'proxy.vpc.') {
-        expect(targetRef).toBe(proxyInstanceId);
+        expect(targetRef).toBe(proxyServerInstanceId);
       } else if (name === 'gateway.vpc.') {
-        expect(targetRef).toBe(gatewayInstanceId);
+        expect(targetRef).toBe(gatewayServerInstanceId);
       } else if (name.endsWith('.proxy.vpc.')) {
-        // Per-provider subdomains should all point to the proxy
-        expect(targetRef).toBe(proxyInstanceId);
+        // Per-provider subdomains should all point to the proxy server
+        expect(targetRef).toBe(proxyServerInstanceId);
       }
 
-      // No DNS record should ever point to the agent
+      // No DNS record should ever point to the agent server
       expect(targetRef).not.toBe(agentInstanceId);
     }
   });
 
   test('Every configured provider is reachable and no stale DNS entries exist', () => {
-    // Get subdomains from proxy config SSM parameter
+    // Get subdomains from proxy server config SSM parameter
     const params = template.findResources('AWS::SSM::Parameter');
-    const proxyConfigParam = Object.values(params).find(
+    const proxyServerConfigParam = Object.values(params).find(
       (p) => p.Properties?.Name === '/openclaw/proxy-config',
     );
-    const configKeys = Object.keys(JSON.parse(proxyConfigParam!.Properties!.Value as string));
+    const configKeys = Object.keys(JSON.parse(proxyServerConfigParam!.Properties!.Value as string));
 
     // Get subdomains from DNS records (*.proxy.vpc.)
     const records = template.findResources('AWS::Route53::RecordSet');
@@ -676,7 +675,7 @@ describe('Agent Machine Configuration', () => {
     expect(userData).toContain('awscli-exe-linux-x86_64.zip');
   });
 
-  test('Agent EC2 uses /dev/sda1 root device', () => {
+  test('Agent Server EC2 uses /dev/sda1 root device', () => {
     const tmpl = createStackWithConfig();
 
     tmpl.hasResourceProperties('AWS::EC2::Instance', {
@@ -696,15 +695,15 @@ describe('Agent Machine Configuration', () => {
     })).toThrow(/ARM instance types are not supported/);
   });
 
-  test('ARM proxy instance type throws an error', () => {
+  test('ARM proxy server instance type throws an error', () => {
     expect(() => createStackWithConfig({
-      proxyInstanceType: new ec2.InstanceType('t4g.nano'),
+      proxyServerInstanceType: new ec2.InstanceType('t4g.nano'),
     })).toThrow(/ARM instance types are not supported/);
   });
 
-  test('ARM gateway instance type throws an error', () => {
+  test('ARM gateway server instance type throws an error', () => {
     expect(() => createStackWithConfig({
-      gatewayInstanceType: new ec2.InstanceType('t4g.nano'),
+      gatewayServerInstanceType: new ec2.InstanceType('t4g.nano'),
     })).toThrow(/ARM instance types are not supported/);
   });
 });

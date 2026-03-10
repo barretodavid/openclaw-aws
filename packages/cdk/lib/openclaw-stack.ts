@@ -15,12 +15,12 @@ const PROXY_PORT = 8080;
 const GATEWAY_PORT = 18789;
 
 export interface OpenclawStackProps extends cdk.StackProps {
-  /** Agent EC2 instance type. Must be x86_64. */
+  /** Agent Server EC2 instance type. Must be x86_64. */
   readonly agentInstanceType: ec2.InstanceType;
-  /** Proxy EC2 instance type. Must be x86_64. */
-  readonly proxyInstanceType: ec2.InstanceType;
-  /** Gateway EC2 instance type. Must be x86_64. */
-  readonly gatewayInstanceType: ec2.InstanceType;
+  /** Proxy Server EC2 instance type. Must be x86_64. */
+  readonly proxyServerInstanceType: ec2.InstanceType;
+  /** Gateway Server EC2 instance type. Must be x86_64. */
+  readonly gatewayServerInstanceType: ec2.InstanceType;
   /** Availability zone for all EC2 instances. */
   readonly availabilityZone: string;
   /** Root EBS volume size (GB) for the agent instance. */
@@ -37,38 +37,38 @@ export class OpenclawStack extends cdk.Stack {
     // --- Security Groups ---
     const agentSg = new ec2.SecurityGroup(this, 'AgentSg', {
       vpc,
-      description: 'Agent EC2 - no inbound, outbound HTTPS broadly',
+      description: 'Agent Server EC2 - no inbound, outbound HTTPS broadly',
       allowAllOutbound: false,
     });
     agentSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS');
     agentSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
 
-    const proxySg = new ec2.SecurityGroup(this, 'ProxySg', {
+    const proxyServerSg = new ec2.SecurityGroup(this, 'ProxyServerSg', {
       vpc,
-      description: 'Proxy EC2 - inbound from Agent on proxy port, outbound HTTPS and HTTP',
+      description: 'Proxy Server EC2 - inbound from Agent on proxy port, outbound HTTPS and HTTP',
       allowAllOutbound: false,
     });
-    proxySg.addIngressRule(agentSg, ec2.Port.tcp(PROXY_PORT), 'Agent to Proxy');
-    proxySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS to LLM provider');
-    proxySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
+    proxyServerSg.addIngressRule(agentSg, ec2.Port.tcp(PROXY_PORT), 'Agent to Proxy Server');
+    proxyServerSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS to LLM provider');
+    proxyServerSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
 
-    const gatewaySg = new ec2.SecurityGroup(this, 'GatewaySg', {
+    const gatewayServerSg = new ec2.SecurityGroup(this, 'GatewayServerSg', {
       vpc,
-      description: 'Gateway EC2 - inbound WebSocket from Agent, outbound HTTPS for channel APIs',
+      description: 'Gateway Server EC2 - inbound WebSocket from Agent, outbound HTTPS for channel APIs',
       allowAllOutbound: false,
     });
-    gatewaySg.addIngressRule(agentSg, ec2.Port.tcp(GATEWAY_PORT), 'Agent to Gateway WebSocket');
-    gatewaySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS (channel APIs)');
-    gatewaySg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
+    gatewayServerSg.addIngressRule(agentSg, ec2.Port.tcp(GATEWAY_PORT), 'Agent to Gateway Server WebSocket');
+    gatewayServerSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'Outbound HTTPS (channel APIs)');
+    gatewayServerSg.addEgressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Outbound HTTP (apt/package repos)');
 
-    // Agent also needs to reach the proxy and gateway
-    agentSg.addEgressRule(proxySg, ec2.Port.tcp(PROXY_PORT), 'Agent to Proxy');
-    agentSg.addEgressRule(gatewaySg, ec2.Port.tcp(GATEWAY_PORT), 'Agent to Gateway WebSocket');
+    // Agent also needs to reach the proxy server and gateway server
+    agentSg.addEgressRule(proxyServerSg, ec2.Port.tcp(PROXY_PORT), 'Agent to Proxy Server');
+    agentSg.addEgressRule(gatewayServerSg, ec2.Port.tcp(GATEWAY_PORT), 'Agent to Gateway Server WebSocket');
 
     // --- IAM Roles ---
     const agentRole = new iam.Role(this, 'AgentRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Agent EC2 role - KMS wallet management + SSM Session Manager',
+      description: 'Agent Server EC2 role - KMS wallet management + SSM Session Manager',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
       ],
@@ -112,24 +112,24 @@ export class OpenclawStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    const gatewayRole = new iam.Role(this, 'GatewayRole', {
+    const gatewayServerRole = new iam.Role(this, 'GatewayServerRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Gateway EC2 role - SSM Session Manager only (no KMS, no Secrets Manager)',
+      description: 'Gateway Server EC2 role - SSM Session Manager only (no KMS, no Secrets Manager)',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
       ],
     });
 
-    const proxyRole = new iam.Role(this, 'ProxyRole', {
+    const proxyServerRole = new iam.Role(this, 'ProxyServerRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Proxy EC2 role - Secrets Manager read + SSM proxy config read + SSM Session Manager',
+      description: 'Proxy Server EC2 role - Secrets Manager read + SSM proxy config read + SSM Session Manager',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
       ],
     });
 
-    // --- Per-Provider Secrets + Proxy Config ---
-    const proxyConfig: Record<string, { backendDomain: string; secretName: string; inject: InjectConfig; api: string | null }> = {};
+    // --- Per-Provider Secrets + Proxy Server Config ---
+    const proxyServerConfig: Record<string, { backendDomain: string; secretName: string; inject: InjectConfig; api: string | null }> = {};
 
     for (const [domain, config] of Object.entries(PROVIDER_REGISTRY)) {
       const apiKey = process.env[config.envVar];
@@ -138,21 +138,21 @@ export class OpenclawStack extends cdk.Stack {
       const secretName = `openclaw/${config.envVar.toLowerCase().replace(/_/g, '-')}`;
       const secret = new secretsmanager.Secret(this, `Secret-${config.envVar}`, {
         secretName,
-        description: `API key for ${domain} - only the Proxy EC2 can read this`,
+        description: `API key for ${domain} - only the Proxy Server EC2 can read this`,
         secretStringValue: cdk.SecretValue.unsafePlainText(apiKey),
       });
-      secret.grantRead(proxyRole);
+      secret.grantRead(proxyServerRole);
 
-      proxyConfig[config.subdomain] = { backendDomain: domain, secretName, inject: config.inject, api: config.api };
+      proxyServerConfig[config.subdomain] = { backendDomain: domain, secretName, inject: config.inject, api: config.api };
     }
 
-    // --- SSM Parameter (Proxy Config) ---
-    const proxyConfigParam = new ssm.StringParameter(this, 'ProxyConfig', {
+    // --- SSM Parameter (Proxy Server Config) ---
+    const proxyServerConfigParam = new ssm.StringParameter(this, 'ProxyServerConfig', {
       parameterName: '/openclaw/proxy-config',
-      description: 'Proxy provider mapping - domain to secret name and injection method',
-      stringValue: JSON.stringify(proxyConfig),
+      description: 'Proxy Server provider mapping - domain to secret name and injection method',
+      stringValue: JSON.stringify(proxyServerConfig),
     });
-    proxyConfigParam.grantRead(proxyRole);
+    proxyServerConfigParam.grantRead(proxyServerRole);
 
     // --- EC2 Instances ---
 
@@ -180,20 +180,20 @@ export class OpenclawStack extends cdk.Stack {
       `usermod -aG docker ${agentMachine.defaultUser}`,
     );
 
-    const proxyMachine = resolveAgentMachine(props.proxyInstanceType);
+    const proxyServerMachine = resolveAgentMachine(props.proxyServerInstanceType);
 
-    const proxyInstance = new ec2.Instance(this, 'ProxyInstance', {
+    const proxyServerInstance = new ec2.Instance(this, 'ProxyServerInstance', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [props.availabilityZone] },
-      instanceType: props.proxyInstanceType,
-      machineImage: proxyMachine.machineImage,
-      securityGroup: proxySg,
-      role: proxyRole,
+      instanceType: props.proxyServerInstanceType,
+      machineImage: proxyServerMachine.machineImage,
+      securityGroup: proxyServerSg,
+      role: proxyServerRole,
       requireImdsv2: true,
     });
 
     // --- Proxy Application (installed from npm) ---
-    proxyInstance.addUserData(
+    proxyServerInstance.addUserData(
       ...ubuntuBaseUserData(),
       // npm global prefix for ubuntu user (avoids sudo for npm install -g)
       'sudo -u ubuntu mkdir -p /home/ubuntu/.npm-global',
@@ -228,20 +228,20 @@ export class OpenclawStack extends cdk.Stack {
       'systemctl start openclaw-proxy',
     );
 
-    const gatewayMachine = resolveAgentMachine(props.gatewayInstanceType);
+    const gatewayServerMachine = resolveAgentMachine(props.gatewayServerInstanceType);
 
-    const gatewayInstance = new ec2.Instance(this, 'GatewayInstance', {
+    const gatewayServerInstance = new ec2.Instance(this, 'GatewayServerInstance', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, availabilityZones: [props.availabilityZone] },
-      instanceType: props.gatewayInstanceType,
-      machineImage: gatewayMachine.machineImage,
-      securityGroup: gatewaySg,
-      role: gatewayRole,
+      instanceType: props.gatewayServerInstanceType,
+      machineImage: gatewayServerMachine.machineImage,
+      securityGroup: gatewayServerSg,
+      role: gatewayServerRole,
       requireImdsv2: true,
     });
 
-    // --- Gateway: Node.js + signal-cli (channel integration dependency) ---
-    gatewayInstance.addUserData(
+    // --- Gateway Server: Node.js + signal-cli (channel integration dependency) ---
+    gatewayServerInstance.addUserData(
       ...ubuntuBaseUserData(),
       // signal-cli (native binary, no JRE needed) -- used by OpenClaw gateway for Signal channel
       'curl -fsSL -o /tmp/signal-cli.tar.gz https://github.com/AsamK/signal-cli/releases/download/v0.14.0/signal-cli-0.14.0-Linux-native.tar.gz',
@@ -256,7 +256,7 @@ export class OpenclawStack extends cdk.Stack {
       'echo \'export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1\' > /etc/profile.d/openclaw.sh',
       // Enable systemd user instance for ubuntu (persists user services without login)
       'loginctl enable-linger ubuntu',
-      // Pre-install OpenClaw (no auto-start -- gateway depends on manual signal-cli setup)
+      // Pre-install OpenClaw (no auto-start -- gateway server depends on manual signal-cli setup)
       'sudo -u ubuntu npm install -g openclaw',
     );
 
@@ -266,16 +266,16 @@ export class OpenclawStack extends cdk.Stack {
       vpc,
     });
 
-    new route53.ARecord(this, 'ProxyDns', {
+    new route53.ARecord(this, 'ProxyServerDns', {
       zone: hostedZone,
       recordName: 'proxy',
-      target: route53.RecordTarget.fromIpAddresses(proxyInstance.instancePrivateIp),
+      target: route53.RecordTarget.fromIpAddresses(proxyServerInstance.instancePrivateIp),
     });
 
-    new route53.ARecord(this, 'GatewayDns', {
+    new route53.ARecord(this, 'GatewayServerDns', {
       zone: hostedZone,
       recordName: 'gateway',
-      target: route53.RecordTarget.fromIpAddresses(gatewayInstance.instancePrivateIp),
+      target: route53.RecordTarget.fromIpAddresses(gatewayServerInstance.instancePrivateIp),
     });
 
     // Per-provider subdomains (only for configured providers)
@@ -285,7 +285,7 @@ export class OpenclawStack extends cdk.Stack {
       new route53.ARecord(this, `Dns-${config.subdomain}`, {
         zone: hostedZone,
         recordName: `${config.subdomain}.proxy`,
-        target: route53.RecordTarget.fromIpAddresses(proxyInstance.instancePrivateIp),
+        target: route53.RecordTarget.fromIpAddresses(proxyServerInstance.instancePrivateIp),
       });
     }
 
@@ -306,34 +306,34 @@ export class OpenclawStack extends cdk.Stack {
     });
 
     // --- Stack Outputs ---
-    new cdk.CfnOutput(this, 'AgentInstanceId', {
+    new cdk.CfnOutput(this, 'AgentServerInstanceId', {
       value: agentInstance.instanceId,
-      description: 'Agent EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
+      description: 'Agent Server EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
     });
 
-    new cdk.CfnOutput(this, 'ProxyInstanceId', {
-      value: proxyInstance.instanceId,
-      description: 'Proxy EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
+    new cdk.CfnOutput(this, 'ProxyServerInstanceId', {
+      value: proxyServerInstance.instanceId,
+      description: 'Proxy Server EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
     });
 
-    new cdk.CfnOutput(this, 'ProxyPrivateIp', {
-      value: proxyInstance.instancePrivateIp,
-      description: 'Proxy address: http://proxy.vpc:8080',
+    new cdk.CfnOutput(this, 'ProxyServerPrivateIp', {
+      value: proxyServerInstance.instancePrivateIp,
+      description: 'Proxy Server address: http://proxy.vpc:8080',
     });
 
-    new cdk.CfnOutput(this, 'GatewayInstanceId', {
-      value: gatewayInstance.instanceId,
-      description: 'Gateway EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
+    new cdk.CfnOutput(this, 'GatewayServerInstanceId', {
+      value: gatewayServerInstance.instanceId,
+      description: 'Gateway Server EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
     });
 
-    new cdk.CfnOutput(this, 'GatewayPrivateIp', {
-      value: gatewayInstance.instancePrivateIp,
-      description: 'Gateway address: ws://gateway.vpc:18789',
+    new cdk.CfnOutput(this, 'GatewayServerPrivateIp', {
+      value: gatewayServerInstance.instancePrivateIp,
+      description: 'Gateway Server address: ws://gateway.vpc:18789',
     });
 
-    new cdk.CfnOutput(this, 'ProxyConfigParameter', {
-      value: proxyConfigParam.parameterName,
-      description: 'SSM Parameter name for the proxy provider mapping',
+    new cdk.CfnOutput(this, 'ProxyServerConfigParameter', {
+      value: proxyServerConfigParam.parameterName,
+      description: 'SSM Parameter name for the proxy server provider mapping',
     });
   }
 }
