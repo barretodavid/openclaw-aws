@@ -98,12 +98,19 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set the API keys for the providers you use:
+Edit `.env` and configure the availability zones and API keys:
 
 ```
+# Required: production and test availability zones (must be in DIFFERENT regions)
+CDK_AZ_PROD=us-east-1a
+CDK_AZ_TEST=us-east-2a
+
+# API keys for the providers you use
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
+
+Both `CDK_AZ_PROD` and `CDK_AZ_TEST` are required. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`). The prod and test AZs **must be in different regions** to avoid collisions on account-scoped resources (Secrets Manager, SSM parameters, IAM roles).
 
 Only providers with a key set in `.env` will be deployed. See `.env.example` for the full list and the [CDK README](packages/cdk/) for all supported providers.
 

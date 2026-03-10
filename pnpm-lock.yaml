@@ -66,6 +66,9 @@ importers:
       '@aws-sdk/credential-provider-ini':
         specifier: ^3.972.0
         version: 3.972.17
+      dotenv:
+        specifier: ^17.3.1
+        version: 17.3.1
       jest:
         specifier: ^29
         version: 29.7.0(@types/node@22.19.13)(ts-node@10.9.2(@types/node@22.19.13)(typescript@5.9.3))

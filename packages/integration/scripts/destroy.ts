@@ -16,7 +16,7 @@ try {
         ...process.env,
         AWS_DEFAULT_REGION: TEST_REGION,
         CDK_DEFAULT_REGION: TEST_REGION,
-        CDK_AVAILABILITY_ZONE: TEST_AZ,
+        CDK_AZ_PROD: TEST_AZ,
       },
     },
   );

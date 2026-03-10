@@ -1,13 +1,11 @@
 export function resolveRegionConfig(env: {
-  CDK_AVAILABILITY_ZONE?: string;
-  CDK_DEFAULT_REGION?: string;
+  CDK_AZ_PROD?: string;
 }): { region: string; availabilityZone: string } {
-  const az = env.CDK_AVAILABILITY_ZONE
-    ?? (env.CDK_DEFAULT_REGION ? `${env.CDK_DEFAULT_REGION}a` : undefined);
+  const az = env.CDK_AZ_PROD;
 
   if (!az) {
     throw new Error(
-      'Cannot resolve region: set CDK_AVAILABILITY_ZONE in .env or configure a default region in your AWS profile.',
+      'CDK_AZ_PROD is not set. Set it in .env (e.g., CDK_AZ_PROD=us-east-1a).',
     );
   }
 

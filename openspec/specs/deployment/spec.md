@@ -8,7 +8,7 @@ The infrastructure SHALL be deployable and destroyable via CDK with .env-driven 
 
 ### Requirement: Environment-Driven Configuration
 
-Provider deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone.
+Provider deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone. Production and test deployments SHALL use separate, explicitly configured availability zones.
 
 #### Scenario: Selective provider deployment
 
@@ -24,27 +24,36 @@ Provider deployment SHALL be controlled by .env file entries. Region SHALL alway
 - **WHEN** the stack is synthesized
 - **THEN** that provider SHALL NOT be deployed
 
-#### Scenario: Explicit AZ in .env
+#### Scenario: Explicit production AZ in .env
 
-- **GIVEN** `CDK_AVAILABILITY_ZONE` is set in .env (e.g., `us-east-1a`)
+- **GIVEN** `CDK_AZ_PROD` is set in .env (e.g., `us-east-1a`)
 - **WHEN** the stack is synthesized
 - **THEN** the stack SHALL use that AZ for all EC2 instances
 - **AND** the stack region SHALL be derived by stripping the trailing letter (e.g., `us-east-1`)
 
-#### Scenario: No AZ in .env, AWS profile region available
+#### Scenario: Missing production AZ
 
-- **GIVEN** `CDK_AVAILABILITY_ZONE` is not set in .env
-- **AND** `CDK_DEFAULT_REGION` is available from the AWS profile (e.g., `eu-west-1`)
+- **GIVEN** `CDK_AZ_PROD` is not set in .env
 - **WHEN** the stack is synthesized
-- **THEN** the AZ SHALL default to `{CDK_DEFAULT_REGION}a` (e.g., `eu-west-1a`)
-- **AND** the stack region SHALL be derived from that AZ using the same logic (strip trailing letter)
+- **THEN** synthesis SHALL fail with an error indicating that `CDK_AZ_PROD` must be set in .env
 
-#### Scenario: No AZ in .env, no AWS profile region
+#### Scenario: Explicit test AZ in .env
 
-- **GIVEN** `CDK_AVAILABILITY_ZONE` is not set in .env
-- **AND** `CDK_DEFAULT_REGION` is not available
-- **WHEN** the stack is synthesized
-- **THEN** synthesis SHALL fail with an error indicating that either `CDK_AVAILABILITY_ZONE` must be set in .env or an AWS profile region must be configured
+- **GIVEN** `CDK_AZ_TEST` is set in .env (e.g., `us-east-2a`)
+- **WHEN** integration test config is loaded
+- **THEN** the test region SHALL be derived by stripping the trailing letter (e.g., `us-east-2`)
+
+#### Scenario: Missing test AZ
+
+- **GIVEN** `CDK_AZ_TEST` is not set in .env
+- **WHEN** integration test config is loaded
+- **THEN** loading SHALL fail with an error indicating that `CDK_AZ_TEST` must be set in .env
+
+#### Scenario: Test and prod AZs in the same region
+
+- **GIVEN** `CDK_AZ_PROD` and `CDK_AZ_TEST` are set to AZs in the same region (e.g., `us-east-1a` and `us-east-1b`)
+- **WHEN** integration test config is loaded
+- **THEN** loading SHALL fail with an error indicating that prod and test AZs must be in different regions to avoid resource collisions
 
 ### Requirement: CDK Stack Structure
 
@@ -113,8 +122,8 @@ The integration test suite SHALL separate infrastructure lifecycle from test exe
 #### Scenario: Deploy test stack
 
 - **WHEN** `pnpm run test:deploy` is executed from the integration package
-- **THEN** it SHALL deploy the OpenclawStack to the configured test region (us-east-2)
-- **AND** it SHALL use `CDK_DEFAULT_REGION`, `CDK_AVAILABILITY_ZONE` environment variables for region targeting
+- **THEN** it SHALL deploy the OpenclawStack to the region derived from `CDK_AZ_TEST` in .env
+- **AND** it SHALL pass `CDK_AZ_PROD` set to the `CDK_AZ_TEST` value as the CDK availability zone (so the CDK app deploys to the test region)
 
 #### Scenario: Run tests against existing stack
 
