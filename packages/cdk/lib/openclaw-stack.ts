@@ -195,9 +195,14 @@ export class OpenclawStack extends cdk.Stack {
     // --- Proxy Application (installed from npm) ---
     proxyInstance.addUserData(
       ...ubuntuBaseUserData(),
-      // Install proxy from npm (global)
-      'npm install -g openclaw-aws-proxy',
-      // Create systemd service
+      // npm global prefix for ubuntu user (avoids sudo for npm install -g)
+      'sudo -u ubuntu mkdir -p /home/ubuntu/.npm-global',
+      'sudo -u ubuntu npm config set prefix /home/ubuntu/.npm-global',
+      'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' > /etc/profile.d/npm-global.sh',
+      'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' >> /home/ubuntu/.bashrc',
+      // Install proxy from npm (as ubuntu user)
+      'sudo -u ubuntu npm install -g openclaw-aws-proxy',
+      // Create systemd service (runs as ubuntu user)
       [
         'cat > /etc/systemd/system/openclaw-proxy.service << EOF',
         '[Unit]',
@@ -206,7 +211,9 @@ export class OpenclawStack extends cdk.Stack {
         '',
         '[Service]',
         'Type=simple',
-        'ExecStart=/usr/bin/openclaw-aws-proxy',
+        'User=ubuntu',
+        'Group=ubuntu',
+        'ExecStart=/home/ubuntu/.npm-global/bin/openclaw-aws-proxy',
         'Restart=on-failure',
         'RestartSec=5',
         'Environment=NODE_ENV=production',
@@ -249,6 +256,8 @@ export class OpenclawStack extends cdk.Stack {
       'echo \'export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1\' > /etc/profile.d/openclaw.sh',
       // Enable systemd user instance for ubuntu (persists user services without login)
       'loginctl enable-linger ubuntu',
+      // Pre-install OpenClaw (no auto-start -- gateway depends on manual signal-cli setup)
+      'sudo -u ubuntu npm install -g openclaw',
     );
 
     // --- Private DNS (proxy.vpc) ---

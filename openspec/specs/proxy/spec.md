@@ -105,3 +105,39 @@ The Proxy SHALL support the following LLM and RPC providers.
 - **THEN** it SHALL support Alchemy and Infura with path-based key injection
 - **AND** it SHALL support Cartridge with Bearer header injection
 - **AND** it SHALL support Voyager with x-apikey header injection
+
+### Requirement: Ubuntu User npm Prefix
+
+The Proxy instance SHALL install npm packages using the ubuntu user npm prefix, consistent with the Agent and Gateway instances.
+
+#### Scenario: npm prefix configuration
+
+- **WHEN** the Proxy instance boots
+- **THEN** it SHALL configure the ubuntu user npm global prefix at `/home/ubuntu/.npm-global`
+- **AND** it SHALL add the npm-global bin directory to PATH via `/etc/profile.d/npm-global.sh` and `/home/ubuntu/.bashrc`
+
+#### Scenario: Package installation as ubuntu
+
+- **WHEN** `openclaw-aws-proxy` is installed via user data
+- **THEN** it SHALL be installed as the ubuntu user (`sudo -u ubuntu npm install -g openclaw-aws-proxy`)
+- **AND** the binary SHALL be located at `/home/ubuntu/.npm-global/bin/openclaw-aws-proxy`
+
+### Requirement: Systemd Service User
+
+The Proxy systemd service SHALL run as the ubuntu user.
+
+#### Scenario: Service configuration
+
+- **GIVEN** the `openclaw-proxy` systemd service
+- **WHEN** the service is started
+- **THEN** it SHALL run as `User=ubuntu` and `Group=ubuntu`
+- **AND** `ExecStart` SHALL reference `/home/ubuntu/.npm-global/bin/openclaw-aws-proxy`
+
+### Requirement: Default Instance Sizing
+
+The Proxy instance SHALL default to t3a.micro (1 GB RAM) to support npm package installation during cloud-init and steady-state proxy operation.
+
+#### Scenario: Default instance type
+
+- **WHEN** no custom `proxyInstanceType` is specified
+- **THEN** the Proxy instance SHALL use t3a.micro

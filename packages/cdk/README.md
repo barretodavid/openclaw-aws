@@ -7,8 +7,8 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 | Component | AWS Service | Purpose | Why this service |
 |---|---|---|---|
 | Agent Server | EC2 (configurable, default t3a.large, 30 GB EBS) | Runs OpenClaw agent (no gateway) | Long-running process needs a persistent server; instance type is configurable in `bin/openclaw.ts` |
-| Gateway Server | EC2 (t3a.nano, Ubuntu 24.04 LTS) | Runs OpenClaw gateway for channel integrations (Signal, Telegram) | Separate instance isolates channel credentials from agent; agent connects via WebSocket on port 18789; ~$1.50/month |
-| API Proxy | EC2 (t3a.nano, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$1.50/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
+| Gateway Server | EC2 (t3a.small, Ubuntu 24.04 LTS) | Runs OpenClaw gateway for channel integrations (Signal, Telegram) | Separate instance isolates channel credentials from agent; agent connects via WebSocket on port 18789; ~$14/month |
+| API Proxy | EC2 (t3a.micro, Ubuntu 24.04 LTS) | Routes requests by subdomain, injects real API keys, streams responses back to agent | Dedicated instance provides hard IAM boundary from agent; supports streaming (SSE) which Lambda cannot; ~$7/month; runs the [`openclaw-aws-proxy`](../proxy/) npm package as a systemd service |
 | Remote Access | SSM Session Manager | Shell access to all EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
 | Provider API Keys | Secrets Manager (one secret per provider) | Stores the real API key for each configured provider (e.g. `openclaw/anthropic-api-key`) | Encrypted at rest, fine-grained IAM access, supports rotation; only the Proxy EC2 can read them |
@@ -52,8 +52,8 @@ new OpenclawStack(app, 'OpenclawStack', {
   // ...
   availabilityZone: 'ca-central-1b',
   agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
-  proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
-  gatewayInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.NANO),
+  proxyInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.MICRO),
+  gatewayInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.SMALL),
   agentVolumeGb: 30,
 });
 ```

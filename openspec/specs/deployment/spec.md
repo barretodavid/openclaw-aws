@@ -180,3 +180,19 @@ All instances SHALL be accessible via SSM Session Manager instead of SSH.
 - **WHEN** the stack is deployed
 - **THEN** no security group SHALL allow inbound traffic on port 22
 - **AND** all IAM roles SHALL include AmazonSSMManagedInstanceCore
+
+### Requirement: Default Instance Sizing
+
+Each EC2 instance SHALL have a default instance type sized for its workload.
+
+#### Scenario: Instance type defaults
+
+- **WHEN** the stack is deployed with default props
+- **THEN** the Agent instance SHALL default to t3a.large (8 GB RAM)
+- **AND** the Proxy instance SHALL default to t3a.micro (1 GB RAM)
+- **AND** the Gateway instance SHALL default to t3a.small (2 GB RAM)
+
+#### Scenario: Custom instance type override
+
+- **WHEN** a custom instance type is specified via stack props
+- **THEN** the specified type SHALL be used instead of the default

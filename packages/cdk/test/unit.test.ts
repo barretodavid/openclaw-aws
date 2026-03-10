@@ -9,8 +9,8 @@ import { resolveRegionConfig } from '../lib/region-config';
 const defaults = {
   availabilityZone: 'us-east-1a',
   agentInstanceType: new ec2.InstanceType('t3a.large'),
-  proxyInstanceType: new ec2.InstanceType('t3a.nano'),
-  gatewayInstanceType: new ec2.InstanceType('t3a.nano'),
+  proxyInstanceType: new ec2.InstanceType('t3a.micro'),
+  gatewayInstanceType: new ec2.InstanceType('t3a.small'),
   agentVolumeGb: 30,
 };
 
@@ -269,9 +269,9 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('Proxy EC2 is t3a.nano', () => {
+  test('Proxy EC2 is t3a.micro', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't3a.nano',
+      InstanceType: 't3a.micro',
     });
   });
 
@@ -318,7 +318,7 @@ describe('Resource Configuration', () => {
 
     for (const [, instance] of Object.entries(instances)) {
       const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
-      // Disambiguate proxy from gateway (both t3a.nano) by checking for proxy-specific content
+      // Disambiguate proxy from gateway by checking for proxy-specific content
       if (userDataStr.includes('openclaw-aws-proxy')) {
         expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
         expect(userDataStr).toContain('apt-get install -y unzip nodejs unattended-upgrades');

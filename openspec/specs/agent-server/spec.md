@@ -8,7 +8,7 @@ The Agent server SHALL run the OpenClaw agent with Docker support and hardware-b
 
 ### Requirement: Instance Configuration
 
-The Agent EC2 instance SHALL be provisioned with Docker, Node.js, and AWS CLI.
+The Agent EC2 instance SHALL be provisioned with Docker, Node.js, AWS CLI, and OpenClaw.
 
 #### Scenario: Software provisioning
 
@@ -17,6 +17,7 @@ The Agent EC2 instance SHALL be provisioned with Docker, Node.js, and AWS CLI.
 - **AND** AWS CLI v2 and unzip SHALL be provisioned by the shared base user data (not agent-specific config)
 - **AND** Docker SHALL be enabled and started via systemd
 - **AND** the ubuntu user SHALL be added to the docker group
+- **AND** OpenClaw SHALL be installed globally via npm as the ubuntu user (`sudo -u ubuntu npm install -g openclaw`)
 
 #### Scenario: Instance type validation
 

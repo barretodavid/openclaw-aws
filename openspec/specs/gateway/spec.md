@@ -8,13 +8,14 @@ The Gateway SHALL provide Signal and Telegram channel integrations for the OpenC
 
 ### Requirement: Channel Integration Support
 
-The Gateway SHALL be provisioned with tools for messaging channel integrations.
+The Gateway SHALL be provisioned with tools for messaging channel integrations and OpenClaw.
 
 #### Scenario: Signal support
 
 - **WHEN** the Gateway instance boots
 - **THEN** it SHALL install signal-cli (native binary, no JRE)
 - **AND** it SHALL install Node.js 22 and unattended-upgrades
+- **AND** OpenClaw SHALL be installed globally via npm as the ubuntu user (`sudo -u ubuntu npm install -g openclaw`)
 
 #### Scenario: No unnecessary software
 
@@ -42,3 +43,12 @@ The Gateway SHALL have no access to API keys or wallet signing.
 - **WHEN** evaluated
 - **THEN** it SHALL have zero inline policy actions beyond SSM Session Manager
 - **AND** it SHALL NOT have Secrets Manager or KMS permissions
+
+### Requirement: Default Instance Sizing
+
+The Gateway instance SHALL default to t3a.small (2 GB RAM) to support npm package installation during cloud-init and concurrent operation of OpenClaw gateway and signal-cli.
+
+#### Scenario: Default instance type
+
+- **WHEN** no custom `gatewayInstanceType` is specified
+- **THEN** the Gateway instance SHALL use t3a.small
