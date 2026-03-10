@@ -8,7 +8,7 @@ The infrastructure SHALL be deployable and destroyable via CDK with .env-driven 
 
 ### Requirement: Environment-Driven Configuration
 
-Provider deployment SHALL be controlled by .env file entries.
+Provider deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone.
 
 #### Scenario: Selective provider deployment
 
@@ -23,6 +23,28 @@ Provider deployment SHALL be controlled by .env file entries.
 - **GIVEN** a provider key is set to an empty string in .env
 - **WHEN** the stack is synthesized
 - **THEN** that provider SHALL NOT be deployed
+
+#### Scenario: Explicit AZ in .env
+
+- **GIVEN** `CDK_AVAILABILITY_ZONE` is set in .env (e.g., `us-east-1a`)
+- **WHEN** the stack is synthesized
+- **THEN** the stack SHALL use that AZ for all EC2 instances
+- **AND** the stack region SHALL be derived by stripping the trailing letter (e.g., `us-east-1`)
+
+#### Scenario: No AZ in .env, AWS profile region available
+
+- **GIVEN** `CDK_AVAILABILITY_ZONE` is not set in .env
+- **AND** `CDK_DEFAULT_REGION` is available from the AWS profile (e.g., `eu-west-1`)
+- **WHEN** the stack is synthesized
+- **THEN** the AZ SHALL default to `{CDK_DEFAULT_REGION}a` (e.g., `eu-west-1a`)
+- **AND** the stack region SHALL be derived from that AZ using the same logic (strip trailing letter)
+
+#### Scenario: No AZ in .env, no AWS profile region
+
+- **GIVEN** `CDK_AVAILABILITY_ZONE` is not set in .env
+- **AND** `CDK_DEFAULT_REGION` is not available
+- **WHEN** the stack is synthesized
+- **THEN** synthesis SHALL fail with an error indicating that either `CDK_AVAILABILITY_ZONE` must be set in .env or an AWS profile region must be configured
 
 ### Requirement: CDK Stack Structure
 

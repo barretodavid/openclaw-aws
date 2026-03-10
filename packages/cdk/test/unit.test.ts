@@ -3,10 +3,11 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack } from '../lib/openclaw-stack';
 import { PROVIDER_REGISTRY } from '../lib/ec2-config';
+import { resolveRegionConfig } from '../lib/region-config';
 
 /** Default config values for tests (mirrors production defaults in bin/openclaw.ts). */
 const defaults = {
-  availabilityZone: 'ca-central-1b',
+  availabilityZone: 'us-east-1a',
   agentInstanceType: new ec2.InstanceType('t3a.large'),
   proxyInstanceType: new ec2.InstanceType('t3a.nano'),
   gatewayInstanceType: new ec2.InstanceType('t3a.nano'),
@@ -705,5 +706,31 @@ describe('Agent Machine Configuration', () => {
     expect(() => createStackWithConfig({
       gatewayInstanceType: new ec2.InstanceType('t4g.nano'),
     })).toThrow(/ARM instance types are not supported/);
+  });
+});
+
+// --- Region Config Resolution Tests ---
+
+describe('resolveRegionConfig', () => {
+  test('explicit AZ returns that AZ and derived region', () => {
+    const result = resolveRegionConfig({ CDK_AVAILABILITY_ZONE: 'us-west-2b' });
+    expect(result).toEqual({ region: 'us-west-2', availabilityZone: 'us-west-2b' });
+  });
+
+  test('explicit AZ takes precedence over CDK_DEFAULT_REGION', () => {
+    const result = resolveRegionConfig({
+      CDK_AVAILABILITY_ZONE: 'eu-west-1c',
+      CDK_DEFAULT_REGION: 'us-east-1',
+    });
+    expect(result).toEqual({ region: 'eu-west-1', availabilityZone: 'eu-west-1c' });
+  });
+
+  test('no AZ with CDK_DEFAULT_REGION returns {region}a and that region', () => {
+    const result = resolveRegionConfig({ CDK_DEFAULT_REGION: 'ap-southeast-1' });
+    expect(result).toEqual({ region: 'ap-southeast-1', availabilityZone: 'ap-southeast-1a' });
+  });
+
+  test('neither AZ nor default region throws an error', () => {
+    expect(() => resolveRegionConfig({})).toThrow(/Cannot resolve region/);
   });
 });
