@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-cdk",
+  "name": "cdk",
   "version": "0.1.0",
   "private": true,
   "bin": {
@@ -9,10 +9,12 @@
     "typecheck": "tsc",
     "test": "jest",
     "test:unit": "jest",
-    "deploy": "cdk deploy",
+    "deploy:prod": "ts-node scripts/deploy-prod.ts",
+    "deploy:test": "ts-node scripts/deploy-test.ts",
+    "destroy:prod": "ts-node scripts/destroy-prod.ts",
+    "destroy:test": "ts-node scripts/destroy-test.ts",
     "synth": "cdk synth",
     "cleanup-wallet-keys": "ts-node scripts/cleanup-wallet-keys.ts",
-    "destroy": "ts-node scripts/cleanup-wallet-keys.ts && cdk destroy",
     "cdk": "cdk"
   },
   "devDependencies": {
@@ -22,6 +24,7 @@
   },
   "dependencies": {
     "aws-cdk-lib": "2.240.0",
-    "constructs": "10.5.1"
+    "constructs": "10.5.1",
+    "shared": "workspace:*"
   }
 }

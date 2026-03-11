@@ -24,18 +24,18 @@ Provider deployment SHALL be controlled by .env file entries. Region SHALL alway
 - **WHEN** the stack is synthesized
 - **THEN** that provider SHALL NOT be deployed
 
-#### Scenario: Explicit production AZ in .env
+#### Scenario: CDK availability zone input
 
-- **GIVEN** `CDK_AZ_PROD` is set in .env (e.g., `us-east-1a`)
+- **GIVEN** `CDK_AZ` is set in the process environment
 - **WHEN** the stack is synthesized
 - **THEN** the stack SHALL use that AZ for all EC2 instances
-- **AND** the stack region SHALL be derived by stripping the trailing letter (e.g., `us-east-1`)
+- **AND** the stack region SHALL be derived by stripping the trailing letter (e.g., `us-east-1a` becomes `us-east-1`)
 
-#### Scenario: Missing production AZ
+#### Scenario: Missing CDK availability zone
 
-- **GIVEN** `CDK_AZ_PROD` is not set in .env
+- **GIVEN** `CDK_AZ` is not set in the process environment
 - **WHEN** the stack is synthesized
-- **THEN** synthesis SHALL fail with an error indicating that `CDK_AZ_PROD` must be set in .env
+- **THEN** synthesis SHALL fail with an error indicating that `CDK_AZ` must be set
 
 #### Scenario: Explicit test AZ in .env
 
@@ -90,59 +90,117 @@ All EC2 instance types SHALL be x86_64 architecture.
 
 ### Requirement: Monorepo Structure
 
-The project SHALL use pnpm workspaces with three packages.
+The project SHALL use pnpm workspaces with four packages.
 
 #### Scenario: Package layout
 
 - **GIVEN** the project root
-- **THEN** packages/cdk/ SHALL contain the CDK infrastructure package
+- **THEN** packages/cdk/ SHALL contain the CDK infrastructure package (named `cdk`)
 - **AND** packages/proxy/ SHALL contain the LLM API proxy package (published to npm as openclaw-aws-proxy)
 - **AND** packages/integration/ SHALL contain the integration test package (named `integration`)
+- **AND** packages/shared/ SHALL contain internal AWS utilities (private, not published)
+
+#### Scenario: Root-level deploy and destroy scripts
+
+- **GIVEN** the project root package.json
+- **THEN** `deploy:prod` SHALL deploy the prod stack and wait for cloud-init
+- **AND** `deploy:test` SHALL deploy the test stack and wait for cloud-init
+- **AND** `destroy:prod` SHALL destroy the prod stack
+- **AND** `destroy:test` SHALL destroy the test stack
+- **AND** there SHALL be no shortcut aliases for `deploy` or `destroy` without an explicit environment suffix
 
 #### Scenario: Root-level test scripts
 
 - **GIVEN** the project root package.json
 - **THEN** `test` SHALL run unit tests only
 - **AND** `test:unit` SHALL run unit tests across all workspaces that define a `test:unit` script (using `pnpm -r run test:unit`)
-- **AND** `test:all` SHALL run unit tests then integration CI sequentially
-- **AND** `test:integration:deploy` SHALL deploy the test stack
-- **AND** `test:integration:run` SHALL run integration tests against an existing stack
-- **AND** `test:integration:destroy` SHALL destroy the test stack
-- **AND** `test:integration:ci` SHALL run deploy, tests, then destroy as a CI composite
+- **AND** `test:all` SHALL run unit tests then CI sequentially
+- **AND** `test:integration` SHALL run integration tests against an existing test stack
+- **AND** `ci` SHALL deploy the test stack, run integration tests, then destroy the test stack (destroying even if tests fail)
 
-#### Scenario: Sequential test:all execution
+### Requirement: Deploy Commands With Cloud-Init Wait
 
-- **WHEN** `pnpm run test:all` is executed
-- **AND** unit tests fail
-- **THEN** integration tests SHALL NOT run
+All deploy commands SHALL wait for cloud-init completion on all 3 EC2 instances before returning, and SHALL print instance IDs with SSM connect instructions.
 
-### Requirement: Integration Test Lifecycle
+#### Scenario: Deploy prod stack
 
-The integration test suite SHALL separate infrastructure lifecycle from test execution.
+- **WHEN** `pnpm run deploy:prod` is executed
+- **THEN** it SHALL deploy the CDK stack using the AZ from `CDK_AZ_PROD` in `.env`
+- **AND** it SHALL wait for SSM agent readiness on all 3 instances
+- **AND** it SHALL wait for cloud-init completion on all 3 instances
+- **AND** it SHALL print instance IDs with `aws ssm start-session` commands
 
 #### Scenario: Deploy test stack
 
-- **WHEN** `pnpm run test:deploy` is executed from the integration package
-- **THEN** it SHALL deploy the OpenclawStack to the region derived from `CDK_AZ_TEST` in .env
-- **AND** it SHALL pass `CDK_AZ_PROD` set to the `CDK_AZ_TEST` value as the CDK availability zone (so the CDK app deploys to the test region)
-
-#### Scenario: Run tests against existing stack
-
-- **WHEN** `pnpm run test:run` is executed from the integration package
-- **THEN** Jest SHALL discover the deployed stack's instances via CloudFormation and EC2 tags
+- **WHEN** `pnpm run deploy:test` is executed
+- **THEN** it SHALL deploy the CDK stack using the AZ from `CDK_AZ_TEST` in `.env`
 - **AND** it SHALL wait for SSM agent readiness on all 3 instances
-- **AND** it SHALL wait for cloud-init completion (`/var/lib/cloud/instance/boot-finished`) on all 3 instances
-- **AND** it SHALL run the test suite via SSM commands against the live instances
+- **AND** it SHALL wait for cloud-init completion on all 3 instances
+- **AND** it SHALL print instance IDs with `aws ssm start-session` commands
+
+### Requirement: Destroy Commands
+
+Destroy commands SHALL use explicit `:prod` and `:test` variants with no shortcut aliases.
+
+#### Scenario: Destroy prod stack
+
+- **WHEN** `pnpm run destroy:prod` is executed
+- **THEN** it SHALL destroy the CDK stack in the region derived from `CDK_AZ_PROD`
 
 #### Scenario: Destroy test stack
 
-- **WHEN** `pnpm run test:destroy` is executed from the integration package
-- **THEN** it SHALL destroy the OpenclawStack in the test region
+- **WHEN** `pnpm run destroy:test` is executed
+- **THEN** it SHALL destroy the CDK stack in the region derived from `CDK_AZ_TEST`
+
+### Requirement: Shared AWS Utilities Package
+
+The project SHALL include a `packages/shared/` internal workspace package providing reusable AWS client creation, SSM command execution, instance discovery, and cloud-init readiness polling.
+
+#### Scenario: Package structure
+
+- **GIVEN** the project root
+- **THEN** `packages/shared/` SHALL be a private pnpm workspace package
+- **AND** it SHALL NOT be published to npm
+- **AND** it SHALL export AWS client creation, SSM command execution, instance discovery, SSM readiness polling, and cloud-init readiness polling functions
+
+#### Scenario: Client creation
+
+- **GIVEN** a region string
+- **WHEN** client creation is invoked
+- **THEN** it SHALL return pre-configured CloudFormation, EC2, and SSM clients
+- **AND** it SHALL use `fromIni()` credential provider
+- **AND** consumers SHALL NOT need to import AWS SDK packages directly
+
+#### Scenario: Instance discovery
+
+- **GIVEN** a deployed CDK stack
+- **WHEN** instance discovery is invoked with the stack name
+- **THEN** it SHALL identify all 3 instances (Agent, Proxy, Gateway) by their IAM role profile
+- **AND** it SHALL return instance IDs and private IPs
+
+#### Scenario: Cloud-init readiness polling
+
+- **GIVEN** SSM agent is online on all instances
+- **WHEN** cloud-init readiness polling is invoked
+- **THEN** it SHALL poll each instance for `/var/lib/cloud/instance/boot-finished` via SSM
+- **AND** it SHALL timeout with an error listing unready instances if the wait exceeds the timeout period
+
+### Requirement: Integration Test Lifecycle
+
+The integration test suite SHALL separate infrastructure lifecycle from test execution, using root-level deploy and destroy commands.
+
+#### Scenario: Run tests against existing stack
+
+- **WHEN** `pnpm run test:integration` is executed
+- **THEN** Jest SHALL discover the deployed stack's instances via CloudFormation and EC2 tags
+- **AND** it SHALL wait for SSM agent readiness on all 3 instances (using shared utilities)
+- **AND** it SHALL wait for cloud-init completion on all 3 instances (using shared utilities)
+- **AND** it SHALL run the test suite via SSM commands against the live instances
 
 #### Scenario: CI composite command
 
-- **WHEN** `pnpm run test:ci` is executed
-- **THEN** it SHALL run deploy, test, and destroy in sequence
+- **WHEN** `pnpm run ci` is executed
+- **THEN** it SHALL run `deploy:test`, then integration tests, then `destroy:test` in sequence
 - **AND** the stack SHALL be destroyed even if tests fail
 
 ### Requirement: Cloud-Init Readiness Gate
@@ -153,7 +211,7 @@ Tests SHALL NOT execute until all user data provisioning is complete on all inst
 
 - **GIVEN** all 3 instances have SSM agent online
 - **WHEN** global setup checks readiness
-- **THEN** it SHALL poll each instance for `/var/lib/cloud/instance/boot-finished` via SSM
+- **THEN** it SHALL poll each instance for `/var/lib/cloud/instance/boot-finished` via SSM (using shared utilities)
 - **AND** it SHALL proceed only when all 3 instances report the file exists
 
 #### Scenario: Cloud-init timeout
@@ -200,7 +258,7 @@ Each EC2 instance SHALL have a default instance type sized for its workload.
 
 ### Requirement: Software Provisioning Verification
 
-The integration test suite SHALL verify that each EC2 instance has its expected software installed and on `$PATH` after cloud-init completes.
+The integration test suite SHALL verify that each EC2 instance has its expected software installed and on `$PATH` after cloud-init completes. System binaries (node, docker, aws) SHALL be checked as root. Non-system binaries installed via npm globals or manual extraction (openclaw, openclaw-aws-proxy, signal-cli) SHALL be checked as the ubuntu user.
 
 #### Scenario: Agent Server provisioning
 
@@ -222,5 +280,5 @@ The integration test suite SHALL verify that each EC2 instance has its expected 
 - **WHEN** the Gateway Server has completed cloud-init
 - **THEN** `which node` SHALL exit 0
 - **AND** `which aws` SHALL exit 0
-- **AND** `which signal-cli` SHALL exit 0
+- **AND** `which signal-cli` SHALL exit 0 (as the ubuntu user)
 - **AND** `which openclaw` SHALL exit 0 (as the ubuntu user)

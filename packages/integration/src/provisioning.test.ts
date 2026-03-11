@@ -60,7 +60,7 @@ describe('Software Provisioning', () => {
     });
 
     test('signal-cli is installed', async () => {
-      const result = await runCommand(ctx.gatewayServerInstanceId, 'which signal-cli');
+      const result = await runCommand(ctx.gatewayServerInstanceId, asUbuntu('which signal-cli'));
       expect(result.exitCode).toBe(0);
     });
 

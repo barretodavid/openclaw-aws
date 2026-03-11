@@ -13,7 +13,7 @@ The Gateway SHALL be provisioned with tools for messaging channel integrations a
 #### Scenario: Signal support
 
 - **WHEN** the Gateway instance boots
-- **THEN** it SHALL install signal-cli (native binary, no JRE) into `/usr/local/bin`
+- **THEN** it SHALL install signal-cli (native binary, no JRE) into `/usr/local/bin` as a single executable file
 - **AND** it SHALL install Node.js 22 and unattended-upgrades
 - **AND** OpenClaw SHALL be installed globally via npm as the ubuntu user (`sudo -u ubuntu npm install -g openclaw`)
 

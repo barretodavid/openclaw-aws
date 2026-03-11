@@ -3,15 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test:deploy": "ts-node scripts/deploy.ts",
-    "test:run": "jest --config jest.config.ts --runInBand",
-    "test:destroy": "ts-node scripts/destroy.ts",
-    "test:ci": "ts-node scripts/deploy.ts && jest --config jest.config.ts --runInBand; STATUS=$?; ts-node scripts/destroy.ts; exit $STATUS"
+    "test:run": "jest --config jest.config.ts --runInBand"
   },
   "devDependencies": {
-    "@aws-sdk/client-cloudformation": "3.1004.0",
-    "@aws-sdk/client-ec2": "3.1004.0",
-    "@aws-sdk/client-ssm": "3.1004.0",
-    "@aws-sdk/credential-provider-ini": "3.972.17"
+    "shared": "workspace:*"
   }
 }

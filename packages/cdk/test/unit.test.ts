@@ -711,12 +711,22 @@ describe('Agent Machine Configuration', () => {
 // --- Region Config Resolution Tests ---
 
 describe('resolveRegionConfig', () => {
-  test('CDK_AZ_PROD returns that AZ and derived region', () => {
-    const result = resolveRegionConfig({ CDK_AZ_PROD: 'us-west-2b' });
+  test('CDK_AZ returns that AZ and derived region', () => {
+    const result = resolveRegionConfig({ CDK_AZ: 'us-west-2b' });
     expect(result).toEqual({ region: 'us-west-2', availabilityZone: 'us-west-2b' });
   });
 
-  test('missing CDK_AZ_PROD throws an error', () => {
-    expect(() => resolveRegionConfig({})).toThrow(/CDK_AZ_PROD is not set/);
+  test('CDK_AZ_PROD fallback returns that AZ and derived region', () => {
+    const result = resolveRegionConfig({ CDK_AZ_PROD: 'us-east-1a' });
+    expect(result).toEqual({ region: 'us-east-1', availabilityZone: 'us-east-1a' });
+  });
+
+  test('CDK_AZ takes precedence over CDK_AZ_PROD', () => {
+    const result = resolveRegionConfig({ CDK_AZ: 'us-west-2b', CDK_AZ_PROD: 'us-east-1a' });
+    expect(result).toEqual({ region: 'us-west-2', availabilityZone: 'us-west-2b' });
+  });
+
+  test('missing CDK_AZ and CDK_AZ_PROD throws an error', () => {
+    expect(() => resolveRegionConfig({})).toThrow(/CDK_AZ is not set/);
   });
 });
