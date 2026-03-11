@@ -197,3 +197,30 @@ Each EC2 instance SHALL have a default instance type sized for its workload.
 
 - **WHEN** a custom instance type is specified via stack props
 - **THEN** the specified type SHALL be used instead of the default
+
+### Requirement: Software Provisioning Verification
+
+The integration test suite SHALL verify that each EC2 instance has its expected software installed and on `$PATH` after cloud-init completes.
+
+#### Scenario: Agent Server provisioning
+
+- **WHEN** the Agent Server has completed cloud-init
+- **THEN** `which node` SHALL exit 0
+- **AND** `which docker` SHALL exit 0
+- **AND** `which aws` SHALL exit 0
+- **AND** `which openclaw` SHALL exit 0 (as the ubuntu user)
+
+#### Scenario: Proxy Server provisioning
+
+- **WHEN** the Proxy Server has completed cloud-init
+- **THEN** `which node` SHALL exit 0
+- **AND** `which aws` SHALL exit 0
+- **AND** `which openclaw-aws-proxy` SHALL exit 0 (as the ubuntu user)
+
+#### Scenario: Gateway Server provisioning
+
+- **WHEN** the Gateway Server has completed cloud-init
+- **THEN** `which node` SHALL exit 0
+- **AND** `which aws` SHALL exit 0
+- **AND** `which signal-cli` SHALL exit 0
+- **AND** `which openclaw` SHALL exit 0 (as the ubuntu user)
