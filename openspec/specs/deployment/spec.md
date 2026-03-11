@@ -109,6 +109,15 @@ The project SHALL use pnpm workspaces with four packages.
 - **AND** `destroy:test` SHALL destroy the test stack
 - **AND** there SHALL be no shortcut aliases for `deploy` or `destroy` without an explicit environment suffix
 
+#### Scenario: Root-level login scripts
+
+- **GIVEN** the project root package.json
+- **THEN** `login:agent` SHALL start an interactive SSM session to the Agent Server in the prod environment
+- **AND** `login:proxy` SHALL start an interactive SSM session to the Proxy Server in the prod environment
+- **AND** `login:gateway` SHALL start an interactive SSM session to the Gateway Server in the prod environment
+- **AND** `login:agent:prod`, `login:proxy:prod`, `login:gateway:prod` SHALL be explicit aliases for the prod variants
+- **AND** `login:agent:test`, `login:proxy:test`, `login:gateway:test` SHALL start sessions to the respective servers in the test environment
+
 #### Scenario: Root-level test scripts
 
 - **GIVEN** the project root package.json
@@ -282,3 +291,38 @@ The integration test suite SHALL verify that each EC2 instance has its expected 
 - **AND** `which aws` SHALL exit 0
 - **AND** `which signal-cli` SHALL exit 0 (as the ubuntu user)
 - **AND** `which openclaw` SHALL exit 0 (as the ubuntu user)
+
+### Requirement: Login Commands
+
+The project SHALL provide login commands that start interactive SSM sessions to deployed EC2 instances without requiring the user to know instance IDs.
+
+#### Scenario: Login to agent server (prod)
+
+- **WHEN** `pnpm run login:agent` is executed
+- **THEN** it SHALL resolve the region from `CDK_AZ_PROD` in `.env`
+- **AND** it SHALL discover the Agent Server instance ID using `discoverInstances` from the shared package
+- **AND** it SHALL start an interactive SSM session with `--document-name ubuntu`
+
+#### Scenario: Login to proxy server (test)
+
+- **WHEN** `pnpm run login:proxy:test` is executed
+- **THEN** it SHALL resolve the region from `CDK_AZ_TEST` in `.env`
+- **AND** it SHALL discover the Proxy Server instance ID using `discoverInstances` from the shared package
+- **AND** it SHALL start an interactive SSM session with `--document-name ubuntu`
+
+#### Scenario: Login to gateway server (prod)
+
+- **WHEN** `pnpm run login:gateway:prod` is executed
+- **THEN** it SHALL resolve the region from `CDK_AZ_PROD` in `.env`
+- **AND** it SHALL discover the Gateway Server instance ID using `discoverInstances` from the shared package
+- **AND** it SHALL start an interactive SSM session with `--document-name ubuntu`
+
+#### Scenario: Invalid server name
+
+- **WHEN** `login.ts` is invoked with an unrecognized server name
+- **THEN** it SHALL exit with an error listing valid server names (agent, proxy, gateway)
+
+#### Scenario: Stack not deployed
+
+- **WHEN** `login.ts` is invoked and the target stack does not exist
+- **THEN** it SHALL exit with an error indicating the stack was not found

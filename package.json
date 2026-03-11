@@ -13,6 +13,15 @@
     "synth": "pnpm --filter cdk run synth",
     "destroy:prod": "pnpm --filter cdk run destroy:prod",
     "destroy:test": "pnpm --filter cdk run destroy:test",
+    "login:agent": "pnpm --filter cdk run login agent prod",
+    "login:agent:prod": "pnpm --filter cdk run login agent prod",
+    "login:agent:test": "pnpm --filter cdk run login agent test",
+    "login:proxy": "pnpm --filter cdk run login proxy prod",
+    "login:proxy:prod": "pnpm --filter cdk run login proxy prod",
+    "login:proxy:test": "pnpm --filter cdk run login proxy test",
+    "login:gateway": "pnpm --filter cdk run login gateway prod",
+    "login:gateway:prod": "pnpm --filter cdk run login gateway prod",
+    "login:gateway:test": "pnpm --filter cdk run login gateway test",
     "publish:proxy": "pnpm --filter openclaw-aws-proxy publish"
   },
   "devDependencies": {

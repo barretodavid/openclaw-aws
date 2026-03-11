@@ -14,6 +14,7 @@
     "destroy:prod": "ts-node scripts/destroy-prod.ts",
     "destroy:test": "ts-node scripts/destroy-test.ts",
     "synth": "cdk synth",
+    "login": "ts-node scripts/login.ts",
     "cleanup-wallet-keys": "ts-node scripts/cleanup-wallet-keys.ts",
     "cdk": "cdk"
   },
