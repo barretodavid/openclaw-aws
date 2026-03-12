@@ -9,7 +9,6 @@ const STACK_NAME = 'OpenclawStack';
 
 const SERVER_FIELD_MAP: Record<string, keyof InstanceInfo> = {
   agent: 'agentInstanceId',
-  proxy: 'proxyServerInstanceId',
   gateway: 'gatewayServerInstanceId',
 };
 
@@ -18,7 +17,7 @@ const env = process.argv[3] ?? 'prod';
 
 if (!server || !SERVER_FIELD_MAP[server]) {
   console.error(`Usage: login.ts <server> [environment]`);
-  console.error(`  server:      agent | proxy | gateway`);
+  console.error(`  server:      agent | gateway`);
   console.error(`  environment: prod (default) | test`);
   process.exit(1);
 }

@@ -16,17 +16,7 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 - **WHEN** its IAM role is evaluated
 - **THEN** it SHALL have KMS permissions (CreateKey, Sign, GetPublicKey, DescribeKey) restricted to wallet-tagged keys
 - **AND** it SHALL have tag:GetResources for key discovery
-- **AND** it SHALL have Secrets Manager read access scoped to the `openclaw/brave-api-key` and `openclaw/gateway-token` secrets only
-- **AND** it SHALL NOT have Secrets Manager access to any LLM provider secrets
-- **AND** it SHALL have SSM Session Manager access
-
-#### Scenario: Proxy role permissions
-
-- **GIVEN** the Proxy EC2 instance
-- **WHEN** its IAM role is evaluated
-- **THEN** it SHALL have Secrets Manager read access for provider API keys only
-- **AND** it SHALL have SSM Parameter Store read access for proxy configuration only
-- **AND** it SHALL NOT have any KMS permissions
+- **AND** it SHALL have Secrets Manager read access scoped to the `openclaw/brave-api-key`, `openclaw/gateway-token`, `openclaw/llm-api-key`, and `openclaw/rpc-api-key` secrets only
 - **AND** it SHALL have SSM Session Manager access
 
 #### Scenario: Gateway role permissions
@@ -75,15 +65,8 @@ Each server SHALL have a dedicated security group restricting its network access
 
 - **GIVEN** the Agent security group
 - **THEN** it SHALL allow outbound HTTPS (443) and HTTP (80) to the internet
-- **AND** it SHALL allow outbound to the Proxy on port 8080
 - **AND** it SHALL allow outbound to the Gateway on port 18789
 - **AND** it SHALL have no inbound rules from the internet
-
-#### Scenario: Proxy network access
-
-- **GIVEN** the Proxy security group
-- **THEN** it SHALL allow inbound from the Agent security group on port 8080 only
-- **AND** it SHALL allow outbound HTTPS (443) to the internet only
 
 #### Scenario: Gateway network access
 

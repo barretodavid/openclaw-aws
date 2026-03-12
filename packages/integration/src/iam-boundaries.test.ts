@@ -5,14 +5,13 @@ import { TEST_REGION } from './config';
 const ctx = readContext();
 
 describe('IAM Boundary Verification', () => {
-  test('Agent Server cannot read LLM provider secrets from Secrets Manager', async () => {
+  test('Agent Server can read LLM API key secret from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.agentInstanceId,
-      `aws secretsmanager get-secret-value --secret-id openclaw/venice-api-key --region ${TEST_REGION} 2>&1 || true`,
+      `aws secretsmanager get-secret-value --secret-id openclaw/llm-api-key --region ${TEST_REGION} --query SecretString --output text`,
     );
 
-    const output = result.stdout + result.stderr;
-    expect(output).toMatch(/AccessDeniedException|not authorized/i);
+    expect(result.stdout.trim()).toBeTruthy();
   });
 
   test('Agent Server can read Brave Search secret from Secrets Manager', async () => {
@@ -35,6 +34,16 @@ describe('IAM Boundary Verification', () => {
     expect(output).not.toMatch(/AccessDeniedException|not authorized/i);
   });
 
+  test('Agent Server cannot read unscoped secrets from Secrets Manager', async () => {
+    const result = await runCommand(
+      ctx.agentInstanceId,
+      `aws secretsmanager get-secret-value --secret-id test-nonexistent --region ${TEST_REGION} 2>&1 || true`,
+    );
+
+    const output = result.stdout + result.stderr;
+    expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
+  });
+
   test('Gateway Server cannot read gateway token secret from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.gatewayServerInstanceId,
@@ -43,16 +52,6 @@ describe('IAM Boundary Verification', () => {
 
     const output = result.stdout + result.stderr;
     expect(output).toMatch(/AccessDeniedException|not authorized/i);
-  });
-
-  test('Proxy Server cannot sign with KMS', async () => {
-    const result = await runCommand(
-      ctx.proxyServerInstanceId,
-      `aws kms sign --key-id alias/test-nonexistent --message "test" --signing-algorithm ECDSA_SHA_256 --message-type RAW --region ${TEST_REGION} 2>&1 || true`,
-    );
-
-    const output = result.stdout + result.stderr;
-    expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
   });
 
   test('Gateway Server cannot read API keys from Secrets Manager', async () => {

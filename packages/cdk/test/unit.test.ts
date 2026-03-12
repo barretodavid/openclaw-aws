@@ -2,31 +2,36 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack } from '../lib/openclaw-stack';
-import { PROVIDER_REGISTRY } from '../lib/ec2-config';
+import { LLM_PROVIDERS, RPC_PROVIDERS } from '../lib/ec2-config';
 import { resolveRegionConfig } from '../lib/region-config';
 
 /** Default config values for tests (mirrors production defaults in bin/openclaw.ts). */
 const defaults = {
   availabilityZone: 'us-east-1a',
   agentInstanceType: new ec2.InstanceType('t3a.large'),
-  proxyServerInstanceType: new ec2.InstanceType('t3a.micro'),
   gatewayServerInstanceType: new ec2.InstanceType('t3a.small'),
   agentVolumeGb: 30,
 };
 
 let template: Template;
 
-// Mock env vars to configure 2 providers (one header-based, one path-based)
+// Mock env vars: one LLM provider + one RPC provider
 const MOCK_ENV_VARS: Record<string, string> = {
-  ANTHROPIC_API_KEY: 'test-anthropic-key',
-  ALCHEMY_API_KEY: 'test-alchemy-key',
+  LLM_PROVIDER: 'venice',
+  LLM_API_KEY: 'test-venice-key',
+  RPC_PROVIDER: 'alchemy',
+  RPC_API_KEY: 'test-alchemy-key',
   BRAVE_API_KEY: 'test-brave-key',
 };
 
+/** Save and clear provider-related env vars, set mock values. */
+const savedEnv: Record<string, string | undefined> = {};
+
 beforeAll(() => {
-  // Clear all provider env vars to prevent .env from leaking into tests
-  for (const config of Object.values(PROVIDER_REGISTRY)) {
-    delete process.env[config.envVar];
+  // Save and clear any existing env vars that could interfere
+  for (const key of ['LLM_PROVIDER', 'LLM_API_KEY', 'RPC_PROVIDER', 'RPC_API_KEY', 'BRAVE_API_KEY']) {
+    savedEnv[key] = process.env[key];
+    delete process.env[key];
   }
 
   // Set only the mock env vars
@@ -63,8 +68,9 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  for (const key of Object.keys(MOCK_ENV_VARS)) {
-    delete process.env[key];
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value !== undefined) process.env[key] = value;
+    else delete process.env[key];
   }
 });
 
@@ -219,7 +225,7 @@ describe('Security Boundaries', () => {
       (r) => r.Properties?.AssumeRolePolicyDocument?.Statement?.[0]?.Principal?.Service === 'ec2.amazonaws.com',
     );
 
-    expect(ec2Roles).toHaveLength(3);
+    expect(ec2Roles).toHaveLength(2);
 
     for (const role of ec2Roles) {
       const managedPolicies: { 'Fn::Join': [string, string[]] }[] = role.Properties.ManagedPolicyArns;
@@ -231,14 +237,6 @@ describe('Security Boundaries', () => {
       const hasSsmPolicy = policyArns.some((arn) => arn.includes('AmazonSSMManagedInstanceCore'));
       expect(hasSsmPolicy).toBe(true);
     }
-  });
-
-  test('Proxy Server security group allows inbound only from Agent SG on port 8080', () => {
-    template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
-      IpProtocol: 'tcp',
-      FromPort: 8080,
-      ToPort: 8080,
-    });
   });
 
   test('Gateway Server security group allows inbound only from Agent SG on port 18789', () => {
@@ -255,23 +253,16 @@ describe('Security Boundaries', () => {
 
 describe('Resource Configuration', () => {
   test('All EC2 instances require IMDSv2 to prevent SSRF credential theft', () => {
-    // CDK's requireImdsv2 creates LaunchTemplates with HttpTokens: required
     const launchTemplates = template.findResources('AWS::EC2::LaunchTemplate');
     const imdsv2Templates = Object.values(launchTemplates).filter(
       (lt) => lt.Properties?.LaunchTemplateData?.MetadataOptions?.HttpTokens === 'required',
     );
-    expect(imdsv2Templates).toHaveLength(3);
+    expect(imdsv2Templates).toHaveLength(2);
   });
 
   test('Agent Server EC2 defaults to t3a.large', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 't3a.large',
-    });
-  });
-
-  test('Proxy Server EC2 is t3a.micro', () => {
-    template.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't3a.micro',
     });
   });
 
@@ -302,34 +293,12 @@ describe('Resource Configuration', () => {
       if (userDataStr.includes('signal-cli')) {
         expect(userDataStr).toContain('-C /usr/local/bin');
         expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
-        // Gateway Server should NOT have Docker or proxy
         expect(userDataStr).not.toContain('docker');
-        expect(userDataStr).not.toContain('openclaw-aws-proxy');
         foundSignalCli = true;
       }
     }
 
     expect(foundSignalCli).toBe(true);
-  });
-
-  test('Proxy Server EC2 user data installs Node.js and starts proxy service', () => {
-    const instances = template.findResources('AWS::EC2::Instance');
-    let foundProxyServerUserData = false;
-
-    for (const [, instance] of Object.entries(instances)) {
-      const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
-      // Disambiguate proxy server from gateway server by checking for proxy-specific content
-      if (userDataStr.includes('openclaw-aws-proxy')) {
-        expect(userDataStr).toContain('deb.nodesource.com/setup_22.x');
-        expect(userDataStr).toContain('apt-get install -y unzip nodejs unattended-upgrades');
-        expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
-        expect(userDataStr).toContain('systemctl enable openclaw-proxy');
-        expect(userDataStr).toContain('systemctl start openclaw-proxy');
-        foundProxyServerUserData = true;
-      }
-    }
-
-    expect(foundProxyServerUserData).toBe(true);
   });
 
   test('Agent Server and Gateway Server user data set OPENCLAW_ALLOW_INSECURE_PRIVATE_WS', () => {
@@ -359,52 +328,11 @@ describe('Resource Configuration', () => {
     });
   });
 
-  test('A record for proxy.vpc points to proxy server instance', () => {
-    template.hasResourceProperties('AWS::Route53::RecordSet', {
-      Name: 'proxy.vpc.',
-      Type: 'A',
-    });
-  });
-
   test('A record for gateway.vpc points to gateway server instance', () => {
     template.hasResourceProperties('AWS::Route53::RecordSet', {
       Name: 'gateway.vpc.',
       Type: 'A',
     });
-  });
-
-  test('Per-provider A records exist for each configured provider', () => {
-    // ANTHROPIC_API_KEY is set -> anthropic.proxy.vpc should exist
-    template.hasResourceProperties('AWS::Route53::RecordSet', {
-      Name: 'anthropic.proxy.vpc.',
-      Type: 'A',
-    });
-
-    // ALCHEMY_API_KEY is set -> alchemy.proxy.vpc should exist
-    template.hasResourceProperties('AWS::Route53::RecordSet', {
-      Name: 'alchemy.proxy.vpc.',
-      Type: 'A',
-    });
-  });
-
-  test('Proxy Server config SSM parameter is keyed by subdomain with backendDomain', () => {
-    const params = template.findResources('AWS::SSM::Parameter');
-    const proxyServerConfigParam = Object.values(params).find(
-      (p) => p.Properties?.Name === '/openclaw/proxy-config',
-    );
-    expect(proxyServerConfigParam).toBeDefined();
-
-    const configStr = proxyServerConfigParam!.Properties.Value;
-    const config = JSON.parse(configStr);
-
-    // Keyed by subdomain, not domain
-    expect(config.anthropic).toBeDefined();
-    expect(config.anthropic.backendDomain).toBe('api.anthropic.com');
-    expect(config.anthropic.api).toBe('anthropic');
-
-    expect(config.alchemy).toBeDefined();
-    expect(config.alchemy.backendDomain).toBe('starknet-mainnet.g.alchemy.com');
-    expect(config.alchemy.api).toBeNull();
   });
 
   test('Agent Server EC2 has 30 GB gp3 EBS volume', () => {
@@ -424,44 +352,39 @@ describe('Resource Configuration', () => {
 // --- Resource Count Tests ---
 
 describe('Resource Counts', () => {
-  test('exactly 3 EC2 instances', () => {
-    template.resourceCountIs('AWS::EC2::Instance', 3);
+  test('exactly 2 EC2 instances', () => {
+    template.resourceCountIs('AWS::EC2::Instance', 2);
   });
 
-  test('exactly 3 IAM roles', () => {
-    template.resourceCountIs('AWS::IAM::Role', 3);
+  test('exactly 2 IAM roles', () => {
+    template.resourceCountIs('AWS::IAM::Role', 2);
   });
 
-  test('exactly 3 security groups', () => {
-    template.resourceCountIs('AWS::EC2::SecurityGroup', 3);
+  test('exactly 2 security groups', () => {
+    template.resourceCountIs('AWS::EC2::SecurityGroup', 2);
   });
 
   test('no CDK-managed KMS keys (agent creates them at runtime)', () => {
     template.resourceCountIs('AWS::KMS::Key', 0);
   });
 
-  test('one Secrets Manager secret per configured LLM provider plus Brave Search and gateway token', () => {
-    // 2 LLM provider secrets (ANTHROPIC, ALCHEMY) + 1 Brave Search + 1 gateway token
-    const llmProviderCount = Object.keys(MOCK_ENV_VARS).length - 1; // exclude BRAVE_API_KEY
-    template.resourceCountIs('AWS::SecretsManager::Secret', llmProviderCount + 2);
+  test('4 Secrets Manager secrets (LLM + RPC + Brave + gateway token)', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 4);
   });
 
-  test('exactly 1 SSM parameter', () => {
-    template.resourceCountIs('AWS::SSM::Parameter', 1);
+  test('no SSM parameters', () => {
+    template.resourceCountIs('AWS::SSM::Parameter', 0);
   });
 
-  test('base + gateway server + per-provider DNS A records', () => {
-    // 1 base (proxy.vpc) + 1 gateway server (gateway.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
-    // BRAVE_API_KEY is not a proxy provider, so it doesn't create a DNS record
-    const proxyProviderCount = Object.keys(MOCK_ENV_VARS).filter((k) => k !== 'BRAVE_API_KEY').length;
-    template.resourceCountIs('AWS::Route53::RecordSet', 2 + proxyProviderCount);
+  test('1 DNS A record (gateway.vpc only)', () => {
+    template.resourceCountIs('AWS::Route53::RecordSet', 1);
   });
 });
 
 // --- Security Invariant Tests ---
 
 describe('Security Invariants', () => {
-  test('Agent Server can only read the Brave Search and gateway token secrets, not LLM provider secrets', () => {
+  test('Agent Server secret access is scoped to specific secrets, not wildcard', () => {
     const [agentRoleId] = findRole('Agent Server');
     const policies = template.findResources('AWS::IAM::Policy');
 
@@ -473,20 +396,12 @@ describe('Security Invariants', () => {
       for (const stmt of statements) {
         const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
         if (stmtActions.some((a: string) => a.startsWith('secretsmanager:'))) {
-          // Resources must be scoped to specific secrets (Ref), not wildcard
           const resource = stmt.Resource;
           expect(resource).toBeDefined();
           expect(resource).not.toBe('*');
         }
       }
     }
-  });
-
-  test('A compromised proxy server cannot sign transactions', () => {
-    const [proxyServerRoleId] = findRole('Proxy Server');
-    const actions = getActionsForRole(proxyServerRoleId);
-    const kmsActions = actions.filter((a) => /^kms:/i.test(a));
-    expect(kmsActions).toEqual([]);
   });
 
   test('A compromised gateway server cannot access API keys or sign transactions', () => {
@@ -496,7 +411,6 @@ describe('Security Invariants', () => {
   });
 
   test('No server accepts traffic from the public internet', () => {
-    // Check inline ingress rules on all security groups
     const sgs = template.findResources('AWS::EC2::SecurityGroup');
     for (const [, sg] of Object.entries(sgs)) {
       const ingressRules = (sg.Properties?.SecurityGroupIngress as Record<string, unknown>[]) ?? [];
@@ -506,7 +420,6 @@ describe('Security Invariants', () => {
       }
     }
 
-    // Check standalone ingress resources
     const ingressResources = template.findResources('AWS::EC2::SecurityGroupIngress');
     for (const [, ingress] of Object.entries(ingressResources)) {
       expect(ingress.Properties?.CidrIp).not.toBe('0.0.0.0/0');
@@ -514,13 +427,12 @@ describe('Security Invariants', () => {
     }
   });
 
-  test('The agent server can only talk to the proxy server, the gateway server, and the internet', () => {
+  test('The agent server can only talk to the gateway server and the internet', () => {
     const [agentSgId] = findSg('no inbound');
-    const [proxyServerSgId] = findSg('Proxy Server EC2');
     const [gatewayServerSgId] = findSg('Gateway Server EC2');
 
     const egressRules = getEgressRules(agentSgId);
-    expect(egressRules).toHaveLength(4);
+    expect(egressRules).toHaveLength(3);
 
     const cidrRules = egressRules.filter((r) => r.CidrIp === '0.0.0.0/0');
     const cidrPorts = cidrRules.map((r) => r.FromPort as number).sort((a, b) => a - b);
@@ -532,13 +444,9 @@ describe('Security Invariants', () => {
       port: r.FromPort,
     }));
 
-    expect(sgTargets).toEqual(
-      expect.arrayContaining([
-        { sg: proxyServerSgId, port: 8080 },
-        { sg: gatewayServerSgId, port: 18789 },
-      ]),
-    );
-    expect(sgTargets).toHaveLength(2);
+    expect(sgTargets).toEqual([
+      { sg: gatewayServerSgId, port: 18789 },
+    ]);
   });
 });
 
@@ -547,32 +455,26 @@ describe('Security Invariants', () => {
 describe('Cross-Resource Relationships', () => {
   test('A refactor cannot accidentally give a server the wrong permissions', () => {
     const [agentRoleId] = findRole('Agent Server');
-    const [proxyServerRoleId] = findRole('Proxy Server');
     const [gatewayServerRoleId] = findRole('Gateway Server');
 
     const [agentInstanceId] = findInstance('docker.io');
-    const [proxyServerInstanceId] = findInstance('openclaw-aws-proxy');
     const [gatewayServerInstanceId] = findInstance('signal-cli');
 
     expect(resolveInstanceRole(agentInstanceId)).toBe(agentRoleId);
-    expect(resolveInstanceRole(proxyServerInstanceId)).toBe(proxyServerRoleId);
     expect(resolveInstanceRole(gatewayServerInstanceId)).toBe(gatewayServerRoleId);
   });
 
   test('A refactor cannot accidentally give a server the wrong network access', () => {
     const [agentSgId] = findSg('no inbound');
-    const [proxyServerSgId] = findSg('Proxy Server EC2');
     const [gatewayServerSgId] = findSg('Gateway Server EC2');
 
     const [agentInstanceId] = findInstance('docker.io');
-    const [proxyServerInstanceId] = findInstance('openclaw-aws-proxy');
     const [gatewayServerInstanceId] = findInstance('signal-cli');
 
     const instances = template.findResources('AWS::EC2::Instance');
 
     for (const [instanceId, expectedSgId] of [
       [agentInstanceId, agentSgId],
-      [proxyServerInstanceId, proxyServerSgId],
       [gatewayServerInstanceId, gatewayServerSgId],
     ] as const) {
       const sgIds = instances[instanceId].Properties?.SecurityGroupIds as { 'Fn::GetAtt': string[] }[];
@@ -582,7 +484,6 @@ describe('Cross-Resource Relationships', () => {
   });
 
   test('Internal DNS routes to the correct servers', () => {
-    const [proxyServerInstanceId] = findInstance('openclaw-aws-proxy');
     const [gatewayServerInstanceId] = findInstance('signal-cli');
     const [agentInstanceId] = findInstance('docker.io');
 
@@ -594,37 +495,13 @@ describe('Cross-Resource Relationships', () => {
         (record.Properties?.ResourceRecords as { 'Fn::GetAtt': string[] }[])?.[0]
       )?.['Fn::GetAtt']?.[0];
 
-      if (name === 'proxy.vpc.') {
-        expect(targetRef).toBe(proxyServerInstanceId);
-      } else if (name === 'gateway.vpc.') {
+      if (name === 'gateway.vpc.') {
         expect(targetRef).toBe(gatewayServerInstanceId);
-      } else if (name.endsWith('.proxy.vpc.')) {
-        // Per-provider subdomains should all point to the proxy server
-        expect(targetRef).toBe(proxyServerInstanceId);
       }
 
       // No DNS record should ever point to the agent server
       expect(targetRef).not.toBe(agentInstanceId);
     }
-  });
-
-  test('Every configured provider is reachable and no stale DNS entries exist', () => {
-    // Get subdomains from proxy server config SSM parameter
-    const params = template.findResources('AWS::SSM::Parameter');
-    const proxyServerConfigParam = Object.values(params).find(
-      (p) => p.Properties?.Name === '/openclaw/proxy-config',
-    );
-    const configKeys = Object.keys(JSON.parse(proxyServerConfigParam!.Properties!.Value as string));
-
-    // Get subdomains from DNS records (*.proxy.vpc.)
-    const records = template.findResources('AWS::Route53::RecordSet');
-    const dnsSubdomains = Object.values(records)
-      .map((r) => r.Properties?.Name as string)
-      .filter((name) => name.endsWith('.proxy.vpc.'))
-      .map((name) => name.replace('.proxy.vpc.', ''))
-      .sort();
-
-    expect(configKeys.sort()).toEqual(dnsSubdomains);
   });
 });
 
@@ -635,29 +512,6 @@ describe('Brave Search Secret', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
       Name: 'openclaw/brave-api-key',
     });
-  });
-
-  test('Agent Server role has scoped GetSecretValue for Brave secret only', () => {
-    const [agentRoleId] = findRole('Agent Server');
-    const policies = template.findResources('AWS::IAM::Policy');
-
-    let foundBraveGrant = false;
-    for (const [, policy] of Object.entries(policies)) {
-      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
-
-      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
-      for (const stmt of statements) {
-        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-        if (stmtActions.includes('secretsmanager:GetSecretValue')) {
-          foundBraveGrant = true;
-          // Must be scoped to a single secret (Ref), not wildcard
-          expect(stmt.Resource).not.toBe('*');
-        }
-      }
-    }
-
-    expect(foundBraveGrant).toBe(true);
   });
 
   test('CDK synth fails when BRAVE_API_KEY is missing', () => {
@@ -710,34 +564,106 @@ describe('Gateway Token Secret', () => {
   });
 });
 
+// --- LLM API Key Secret Tests ---
+
+describe('LLM API Key Secret', () => {
+  test('LLM API key secret exists with correct name', () => {
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: 'openclaw/llm-api-key',
+    });
+  });
+
+  test('Agent Server role has scoped read access to the LLM secret', () => {
+    const [agentRoleId] = findRole('Agent Server');
+    const policies = template.findResources('AWS::IAM::Policy');
+
+    let foundLlmGrant = false;
+    for (const [, policy] of Object.entries(policies)) {
+      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
+
+      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+      for (const stmt of statements) {
+        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+        if (stmtActions.includes('secretsmanager:GetSecretValue')) {
+          expect(stmt.Resource).not.toBe('*');
+          foundLlmGrant = true;
+        }
+      }
+    }
+
+    expect(foundLlmGrant).toBe(true);
+  });
+});
+
+// --- RPC API Key Secret Tests ---
+
+describe('RPC API Key Secret', () => {
+  test('RPC API key secret exists with correct name when configured', () => {
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: 'openclaw/rpc-api-key',
+    });
+  });
+
+  test('No RPC secret when RPC_PROVIDER is not set', () => {
+    const saved = { RPC_PROVIDER: process.env.RPC_PROVIDER, RPC_API_KEY: process.env.RPC_API_KEY };
+    delete process.env.RPC_PROVIDER;
+    delete process.env.RPC_API_KEY;
+    try {
+      const tmpl = createStackWithConfig();
+      // 3 secrets: LLM + Brave + gateway-token (no RPC)
+      tmpl.resourceCountIs('AWS::SecretsManager::Secret', 3);
+    } finally {
+      process.env.RPC_PROVIDER = saved.RPC_PROVIDER;
+      process.env.RPC_API_KEY = saved.RPC_API_KEY;
+    }
+  });
+});
+
 // --- LLM Provider Validation Tests ---
 
 describe('LLM Provider Validation', () => {
-  test('CDK synth fails when no LLM provider key is set', () => {
-    // Save all current env vars
-    const saved: Record<string, string | undefined> = {};
-    for (const config of Object.values(PROVIDER_REGISTRY)) {
-      saved[config.envVar] = process.env[config.envVar];
-      delete process.env[config.envVar];
-    }
-    // Set only a non-LLM provider key and BRAVE_API_KEY
-    process.env.ALCHEMY_API_KEY = 'test-alchemy-key';
-    process.env.BRAVE_API_KEY = 'test-brave-key';
-
+  test('CDK synth fails when LLM_PROVIDER is missing', () => {
+    const saved = process.env.LLM_PROVIDER;
+    delete process.env.LLM_PROVIDER;
     try {
-      expect(() => createStackWithConfig()).toThrow(/At least one LLM provider API key is required/);
+      expect(() => createStackWithConfig()).toThrow(/LLM_PROVIDER is required/);
     } finally {
-      // Restore
-      for (const [key, value] of Object.entries(saved)) {
-        if (value !== undefined) process.env[key] = value;
-        else delete process.env[key];
-      }
+      process.env.LLM_PROVIDER = saved;
     }
   });
 
-  test('CDK synth succeeds when at least one LLM provider key is set', () => {
-    // The default MOCK_ENV_VARS include ANTHROPIC_API_KEY (an LLM provider)
-    // so createStackWithConfig() should succeed
+  test('CDK synth fails when LLM_PROVIDER is unrecognized', () => {
+    const saved = process.env.LLM_PROVIDER;
+    process.env.LLM_PROVIDER = 'nonexistent';
+    try {
+      expect(() => createStackWithConfig()).toThrow(/Unknown LLM_PROVIDER/);
+    } finally {
+      process.env.LLM_PROVIDER = saved;
+    }
+  });
+
+  test('CDK synth fails when LLM_API_KEY is missing', () => {
+    const saved = process.env.LLM_API_KEY;
+    delete process.env.LLM_API_KEY;
+    try {
+      expect(() => createStackWithConfig()).toThrow(/LLM_API_KEY is required/);
+    } finally {
+      process.env.LLM_API_KEY = saved;
+    }
+  });
+
+  test('CDK synth fails when RPC_PROVIDER is unrecognized', () => {
+    const saved = process.env.RPC_PROVIDER;
+    process.env.RPC_PROVIDER = 'nonexistent';
+    try {
+      expect(() => createStackWithConfig()).toThrow(/Unknown RPC_PROVIDER/);
+    } finally {
+      process.env.RPC_PROVIDER = saved;
+    }
+  });
+
+  test('CDK synth succeeds with valid LLM provider', () => {
     expect(() => createStackWithConfig()).not.toThrow();
   });
 });
@@ -825,12 +751,6 @@ describe('Agent Machine Configuration', () => {
   test('ARM agent instance type throws an error', () => {
     expect(() => createStackWithConfig({
       agentInstanceType: new ec2.InstanceType('t4g.large'),
-    })).toThrow(/ARM instance types are not supported/);
-  });
-
-  test('ARM proxy server instance type throws an error', () => {
-    expect(() => createStackWithConfig({
-      proxyServerInstanceType: new ec2.InstanceType('t4g.nano'),
     })).toThrow(/ARM instance types are not supported/);
   });
 

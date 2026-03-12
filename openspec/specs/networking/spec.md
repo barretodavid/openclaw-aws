@@ -23,16 +23,8 @@ DNS A records SHALL map service names to instance private IPs.
 #### Scenario: Base service records
 
 - **WHEN** the stack is deployed
-- **THEN** proxy.vpc SHALL resolve to the Proxy instance private IP
-- **AND** gateway.vpc SHALL resolve to the Gateway instance private IP
+- **THEN** gateway.vpc SHALL resolve to the Gateway instance private IP
 - **AND** no DNS record SHALL point to the Agent instance
-
-#### Scenario: Per-provider subdomain records
-
-- **GIVEN** a provider with an API key set in .env
-- **WHEN** the stack is deployed
-- **THEN** <subdomain>.proxy.vpc SHALL resolve to the Proxy instance private IP
-- **AND** DNS records SHALL exist only for configured providers
 
 ### Requirement: Default VPC Usage
 
@@ -52,7 +44,6 @@ Instance-to-role and instance-to-security-group bindings SHALL be correct.
 
 - **WHEN** the stack is deployed
 - **THEN** the Agent instance SHALL use the Agent IAM role
-- **AND** the Proxy instance SHALL use the Proxy IAM role
 - **AND** the Gateway instance SHALL use the Gateway IAM role
 
 #### Scenario: Security group binding integrity

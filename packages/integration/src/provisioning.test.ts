@@ -31,23 +31,6 @@ describe('Software Provisioning', () => {
     });
   });
 
-  describe('Proxy Server', () => {
-    test('node is installed', async () => {
-      const result = await runCommand(ctx.proxyServerInstanceId, 'which node');
-      expect(result.exitCode).toBe(0);
-    });
-
-    test('aws CLI is installed', async () => {
-      const result = await runCommand(ctx.proxyServerInstanceId, 'which aws');
-      expect(result.exitCode).toBe(0);
-    });
-
-    test('openclaw-aws-proxy is installed', async () => {
-      const result = await runCommand(ctx.proxyServerInstanceId, asUbuntu('which openclaw-aws-proxy'));
-      expect(result.exitCode).toBe(0);
-    });
-  });
-
   describe('Gateway Server', () => {
     test('node is installed', async () => {
       const result = await runCommand(ctx.gatewayServerInstanceId, 'which node');

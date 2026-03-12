@@ -48,7 +48,7 @@ The Agent SHALL create and use KMS-backed wallet keys for Starknet transaction s
 
 ### Requirement: Internal Connectivity
 
-The Agent Server SHALL connect to the Gateway Server via WebSocket and to the Proxy Server via HTTP.
+The Agent Server SHALL connect to the Gateway Server via WebSocket and reach LLM/RPC providers directly via HTTPS.
 
 #### Scenario: Gateway Server connection
 
@@ -56,7 +56,8 @@ The Agent Server SHALL connect to the Gateway Server via WebSocket and to the Pr
 - **THEN** it SHALL use ws://gateway.vpc:18789
 - **AND** the OPENCLAW_ALLOW_INSECURE_PRIVATE_WS environment variable SHALL be set
 
-#### Scenario: Proxy Server connection
+#### Scenario: LLM and RPC API access
 
-- **WHEN** the Agent makes an LLM API request
-- **THEN** it SHALL route through http://<provider>.proxy.vpc:8080
+- **WHEN** the Agent makes an LLM or RPC API request
+- **THEN** it SHALL connect directly to the provider via HTTPS
+- **AND** it SHALL retrieve API keys from Secrets Manager (openclaw/llm-api-key, openclaw/rpc-api-key)

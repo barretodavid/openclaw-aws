@@ -1,6 +1,6 @@
 # OpenClaw Safe Agent Infrastructure
 
-Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS), provider API keys (via Secrets Manager), and channel credentials (via gateway server isolation) so that even a compromised agent cannot extract them.
+Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS), API keys (via Secrets Manager), and channel credentials (via gateway server isolation) so that even a compromised agent cannot extract the wallet key.
 
 ## Architecture
 
@@ -8,19 +8,16 @@ Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects 
 graph LR
     Laptop -->|"SSM Session Manager"| AgentEC2
     Laptop -->|"SSM Session Manager"| GatewayEC2
-    Laptop -->|"SSM Session Manager"| ProxyEC2
     subgraph VPC ["Default VPC -- public subnets"]
-        DNS["Route 53<br/>Private Hosted Zone<br/>(*.proxy.vpc, gateway.vpc)"]
+        DNS["Route 53<br/>Private Hosted Zone<br/>(gateway.vpc)"]
         AgentEC2["Agent Server<br/>(EC2, configurable)"]
-        GatewayEC2["Gateway Server<br/>(EC2 t3a.nano)"]
-        ProxyEC2["Proxy Server<br/>(EC2 t3a.nano)"]
+        GatewayEC2["Gateway Server<br/>(EC2 t3a.small)"]
         AgentEC2 -->|"WebSocket<br/>(ws://gateway.vpc:18789)"| GatewayEC2
-        AgentEC2 -->|"request via subdomain<br/>(anthropic.proxy.vpc:8080)"| ProxyEC2
     end
     GatewayEC2 -->|"channel messages"| Channels["Signal / Telegram<br/>/ other channels"]
-    ProxyEC2 -->|"reads provider config"| PS["SSM Parameter Store<br/>(/openclaw/proxy-config)"]
-    ProxyEC2 -->|"reads API key<br/>(per provider)"| SM["Secrets Manager<br/>(per-provider secrets)"]
-    ProxyEC2 -->|"injects real API key<br/>+ streams response"| LLM["LLM / API Provider"]
+    AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Brave, gateway token)"]
+    AgentEC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
+    AgentEC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
     AgentEC2 <-->|"Sign(tx hash) / signature"| KMS["KMS<br/>(ECC_NIST_P256)"]
     AgentEC2 -->|"signed tx"| Blockchain
 ```
@@ -30,9 +27,8 @@ graph LR
 | Package | Description |
 |---|---|
 | [`packages/cdk`](packages/cdk/) | AWS CDK stack -- EC2 instances, IAM roles, KMS, Secrets Manager, Route 53, security groups |
-| [`packages/proxy`](packages/proxy/) | HTTP proxy that injects API keys from Secrets Manager using subdomain-based routing |
-
-For components, security boundaries, design decisions, supported providers, and operational guides (key rotation, adding providers), see the [CDK package README](packages/cdk/README.md). For proxy internals (routing, injection methods, configuration), see the [proxy package README](packages/proxy/README.md).
+| [`packages/shared`](packages/shared/) | Internal AWS utilities -- client creation, SSM commands, instance discovery, cloud-init readiness |
+| [`packages/integration`](packages/integration/) | Integration test suite -- runs against deployed stack via SSM |
 
 ## Prerequisites
 
@@ -98,21 +94,26 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and configure the availability zones and API keys:
+Edit `.env` and configure:
 
 ```
 # Required: production and test availability zones (must be in DIFFERENT regions)
 CDK_AZ_PROD=us-east-1a
 CDK_AZ_TEST=us-east-2a
 
-# API keys for the providers you use
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
+# LLM Provider (required)
+LLM_PROVIDER=venice
+LLM_API_KEY=sk-...
+
+# RPC Provider (optional, for Starknet on-chain access)
+RPC_PROVIDER=alchemy
+RPC_API_KEY=abc123...
+
+# Web search (required)
+BRAVE_API_KEY=...
 ```
 
-Both `CDK_AZ_PROD` and `CDK_AZ_TEST` are required. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`). The prod and test AZs **must be in different regions** to avoid collisions on account-scoped resources (Secrets Manager, SSM parameters, IAM roles).
-
-Only providers with a key set in `.env` will be deployed. See `.env.example` for the full list and the [CDK README](packages/cdk/) for all supported providers.
+Both `CDK_AZ_PROD` and `CDK_AZ_TEST` are required. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`). The prod and test AZs **must be in different regions** to avoid collisions on account-scoped resources (Secrets Manager, IAM roles).
 
 ## Deploy
 
@@ -133,9 +134,6 @@ CDK will show the resources to be created and ask for confirmation. After deploy
 * **AgentServerInstanceId** -- Agent Server EC2 instance ID
 * **GatewayServerInstanceId** -- Gateway Server EC2 instance ID
 * **GatewayServerPrivateIp** -- Gateway Server private IP (agent connects via `ws://gateway.vpc:18789`)
-* **ProxyServerInstanceId** -- Proxy Server EC2 instance ID
-* **ProxyServerPrivateIp** -- Proxy Server private IP (agent reaches proxy via `http://proxy.vpc:8080` or per-provider subdomains like `http://anthropic.proxy.vpc:8080`)
-* **ProxyServerConfigParameter** -- SSM Parameter name for the proxy server provider mapping
 
 ## Connect to instances
 
@@ -147,9 +145,6 @@ aws ssm start-session --target <AgentServerInstanceId> --document-name ubuntu
 
 # Connect to the Gateway Server EC2
 aws ssm start-session --target <GatewayServerInstanceId> --document-name ubuntu
-
-# Connect to the Proxy Server EC2
-aws ssm start-session --target <ProxyServerInstanceId> --document-name ubuntu
 ```
 
 ## Tear down
@@ -162,7 +157,7 @@ npx cdk destroy
 
 ## OpenClaw Setup
 
-After deployment, the proxy server is already running. The gateway and agent servers need manual configuration.
+After deployment, the gateway and agent servers need manual configuration.
 
 ### Gateway Server
 
@@ -223,11 +218,8 @@ Configure OpenClaw with Venice.ai
 ```bash
 openclaw onboard --non-interactive --accept-risk \
   --mode remote --remote-url "ws://gateway.vpc:18789" \
-  --auth-choice custom-api-key \
-  --custom-base-url "http://venice.proxy.vpc:8080" \
-  --custom-api-key "proxy-managed" \
-  --custom-model-id "venice/zai-org-glm-5" \
-  --custom-compatibility openai \
+  --auth-choice venice \
+  --model "venice/zai-org-glm-5" \
   --skip-channels --skip-skills --skip-daemon
 ```
 
@@ -237,6 +229,22 @@ Configure image and fallback models
 openclaw models set-image venice/kimi-k2-5
 openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'
 ```
+
+Configure the LLM API key by running `openclaw secrets configure` and following the prompts:
+
+1. **Provider setup** -- add a new provider:
+   - Name: `llm`
+   - Source: `exec`
+   - Command: `/usr/local/bin/aws`
+   - Args: `secretsmanager get-secret-value --secret-id openclaw/llm-api-key --query SecretString --output text`
+   - passEnv: `HOME`
+   - jsonOnly: `false`
+
+2. **Credential mapping** -- map the Venice API key credential to provider `llm` with ID `value`
+
+3. **Apply** the plan
+
+> The LLM API key is stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. It never touches disk on the Agent Server.
 
 Configure the gateway token by running `openclaw secrets configure` and following the prompts:
 

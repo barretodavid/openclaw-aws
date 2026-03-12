@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The infrastructure SHALL be deployable and destroyable via CDK with .env-driven provider configuration.
+The infrastructure SHALL be deployable and destroyable via CDK with .env-driven configuration.
 
 ## Requirements
 
@@ -22,54 +22,52 @@ The Brave Search API key SHALL be stored in Secrets Manager and accessible only 
 - **WHEN** the stack is deployed
 - **THEN** a Secrets Manager secret named `openclaw/brave-api-key` SHALL be created
 - **AND** only the Agent Server IAM role SHALL have read access to this secret
-- **AND** the Proxy Server and Gateway Server roles SHALL NOT have access to this secret
+- **AND** the Gateway Server role SHALL NOT have access to this secret
 
 #### Scenario: .env.example entry
 
 - **GIVEN** the `.env.example` file
 - **THEN** it SHALL include a `BRAVE_API_KEY` entry
 
-### Requirement: LLM Provider Key Required
+### Requirement: LLM API Key Required
 
-At least one LLM provider API key SHALL be set in `.env` for CDK synth to succeed.
+An LLM API key SHALL be set in `.env` for CDK synth to succeed.
 
-#### Scenario: No LLM provider key set
+#### Scenario: No LLM API key set
 
-- **GIVEN** no LLM provider key (entries in `PROVIDER_REGISTRY` where `api !== null`) is set in `.env`
+- **GIVEN** `LLM_API_KEY` is not set or empty in `.env`
 - **WHEN** CDK synth is executed
-- **THEN** it SHALL fail with an error indicating that at least one LLM provider key is required
-- **AND** the error message SHALL list all available LLM provider env var names
+- **THEN** it SHALL fail with an error indicating that `LLM_API_KEY` is required
 
-#### Scenario: At least one LLM provider key set
+#### Scenario: LLM API key set
 
-- **GIVEN** at least one LLM provider key is set in `.env`
+- **GIVEN** `LLM_API_KEY` is set in `.env`
 - **WHEN** CDK synth is executed
-- **THEN** the LLM provider validation SHALL pass
+- **THEN** the LLM API key validation SHALL pass
+- **AND** a Secrets Manager secret named `openclaw/llm-api-key` SHALL be created
+- **AND** only the Agent Server IAM role SHALL have read access to this secret
 
-#### Scenario: Only non-LLM provider keys set
+### Requirement: RPC API Key
 
-- **GIVEN** only non-LLM provider keys (entries where `api === null`) are set in `.env`
-- **AND** no LLM provider key is set
-- **WHEN** CDK synth is executed
-- **THEN** it SHALL fail with the same error as when no provider key is set
+An RPC API key MAY be set in `.env` for blockchain RPC access.
+
+#### Scenario: RPC API key set
+
+- **GIVEN** `RPC_API_KEY` is set in `.env`
+- **WHEN** the stack is deployed
+- **THEN** a Secrets Manager secret named `openclaw/rpc-api-key` SHALL be created
+- **AND** only the Agent Server IAM role SHALL have read access to this secret
 
 ### Requirement: Environment-Driven Configuration
 
-Provider deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone. Production and test deployments SHALL use separate, explicitly configured availability zones.
+Deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone. Production and test deployments SHALL use separate, explicitly configured availability zones.
 
-#### Scenario: Selective provider deployment
+#### Scenario: .env configuration keys
 
-- **GIVEN** the .env file contains API keys for N providers
-- **WHEN** the stack is synthesized
-- **THEN** exactly N Secrets Manager secrets SHALL be created
-- **AND** exactly N per-provider DNS records SHALL be created
-- **AND** the SSM proxy config SHALL contain exactly those N providers
-
-#### Scenario: Empty provider key
-
-- **GIVEN** a provider key is set to an empty string in .env
-- **WHEN** the stack is synthesized
-- **THEN** that provider SHALL NOT be deployed
+- **GIVEN** the `.env` file
+- **THEN** it SHALL use `LLM_PROVIDER` and `LLM_API_KEY` for the LLM provider configuration
+- **AND** it SHALL use `RPC_PROVIDER` and `RPC_API_KEY` for the RPC provider configuration
+- **AND** it SHALL use `BRAVE_API_KEY` for the Brave Search API key
 
 #### Scenario: CDK availability zone input
 
@@ -109,11 +107,10 @@ The infrastructure SHALL be defined as a single CDK stack.
 #### Scenario: Resource counts
 
 - **WHEN** the stack is deployed
-- **THEN** it SHALL create exactly 3 EC2 instances
-- **AND** exactly 3 IAM roles
-- **AND** exactly 3 security groups
+- **THEN** it SHALL create exactly 2 EC2 instances
+- **AND** exactly 2 IAM roles
+- **AND** exactly 2 security groups
 - **AND** 0 CDK-managed KMS keys (agent creates them at runtime)
-- **AND** 1 SSM parameter for proxy configuration
 
 ### Requirement: Tear-Down Safety
 
@@ -137,13 +134,12 @@ All EC2 instance types SHALL be x86_64 architecture.
 
 ### Requirement: Monorepo Structure
 
-The project SHALL use pnpm workspaces with four packages.
+The project SHALL use pnpm workspaces with three packages.
 
 #### Scenario: Package layout
 
 - **GIVEN** the project root
 - **THEN** packages/cdk/ SHALL contain the CDK infrastructure package (named `cdk`)
-- **AND** packages/proxy/ SHALL contain the LLM API proxy package (published to npm as openclaw-aws-proxy)
 - **AND** packages/integration/ SHALL contain the integration test package (named `integration`)
 - **AND** packages/shared/ SHALL contain internal AWS utilities (private, not published)
 
@@ -160,10 +156,9 @@ The project SHALL use pnpm workspaces with four packages.
 
 - **GIVEN** the project root package.json
 - **THEN** `login:agent` SHALL start an interactive SSM session to the Agent Server in the prod environment
-- **AND** `login:proxy` SHALL start an interactive SSM session to the Proxy Server in the prod environment
 - **AND** `login:gateway` SHALL start an interactive SSM session to the Gateway Server in the prod environment
-- **AND** `login:agent:prod`, `login:proxy:prod`, `login:gateway:prod` SHALL be explicit aliases for the prod variants
-- **AND** `login:agent:test`, `login:proxy:test`, `login:gateway:test` SHALL start sessions to the respective servers in the test environment
+- **AND** `login:agent:prod`, `login:gateway:prod` SHALL be explicit aliases for the prod variants
+- **AND** `login:agent:test`, `login:gateway:test` SHALL start sessions to the respective servers in the test environment
 
 #### Scenario: Root-level test scripts
 
@@ -176,22 +171,22 @@ The project SHALL use pnpm workspaces with four packages.
 
 ### Requirement: Deploy Commands With Cloud-Init Wait
 
-All deploy commands SHALL wait for cloud-init completion on all 3 EC2 instances before returning, and SHALL print instance IDs with SSM connect instructions.
+All deploy commands SHALL wait for cloud-init completion on all 2 EC2 instances before returning, and SHALL print instance IDs with SSM connect instructions.
 
 #### Scenario: Deploy prod stack
 
 - **WHEN** `pnpm run deploy:prod` is executed
 - **THEN** it SHALL deploy the CDK stack using the AZ from `CDK_AZ_PROD` in `.env`
-- **AND** it SHALL wait for SSM agent readiness on all 3 instances
-- **AND** it SHALL wait for cloud-init completion on all 3 instances
+- **AND** it SHALL wait for SSM agent readiness on all 2 instances
+- **AND** it SHALL wait for cloud-init completion on all 2 instances
 - **AND** it SHALL print instance IDs with `aws ssm start-session` commands
 
 #### Scenario: Deploy test stack
 
 - **WHEN** `pnpm run deploy:test` is executed
 - **THEN** it SHALL deploy the CDK stack using the AZ from `CDK_AZ_TEST` in `.env`
-- **AND** it SHALL wait for SSM agent readiness on all 3 instances
-- **AND** it SHALL wait for cloud-init completion on all 3 instances
+- **AND** it SHALL wait for SSM agent readiness on all 2 instances
+- **AND** it SHALL wait for cloud-init completion on all 2 instances
 - **AND** it SHALL print instance IDs with `aws ssm start-session` commands
 
 ### Requirement: Destroy Commands
@@ -231,7 +226,7 @@ The project SHALL include a `packages/shared/` internal workspace package provid
 
 - **GIVEN** a deployed CDK stack
 - **WHEN** instance discovery is invoked with the stack name
-- **THEN** it SHALL identify all 3 instances (Agent, Proxy, Gateway) by their IAM role profile
+- **THEN** it SHALL identify all 2 instances (Agent, Gateway) by their IAM role profile
 - **AND** it SHALL return instance IDs and private IPs
 
 #### Scenario: Cloud-init readiness polling
@@ -249,8 +244,8 @@ The integration test suite SHALL separate infrastructure lifecycle from test exe
 
 - **WHEN** `pnpm run test:integration` is executed
 - **THEN** Jest SHALL discover the deployed stack's instances via CloudFormation and EC2 tags
-- **AND** it SHALL wait for SSM agent readiness on all 3 instances (using shared utilities)
-- **AND** it SHALL wait for cloud-init completion on all 3 instances (using shared utilities)
+- **AND** it SHALL wait for SSM agent readiness on all 2 instances (using shared utilities)
+- **AND** it SHALL wait for cloud-init completion on all 2 instances (using shared utilities)
 - **AND** it SHALL run the test suite via SSM commands against the live instances
 
 #### Scenario: CI composite command
@@ -265,10 +260,10 @@ Tests SHALL NOT execute until all user data provisioning is complete on all inst
 
 #### Scenario: Waiting for cloud-init
 
-- **GIVEN** all 3 instances have SSM agent online
+- **GIVEN** all 2 instances have SSM agent online
 - **WHEN** global setup checks readiness
 - **THEN** it SHALL poll each instance for `/var/lib/cloud/instance/boot-finished` via SSM (using shared utilities)
-- **AND** it SHALL proceed only when all 3 instances report the file exists
+- **AND** it SHALL proceed only when all 2 instances report the file exists
 
 #### Scenario: Cloud-init timeout
 
@@ -278,7 +273,7 @@ Tests SHALL NOT execute until all user data provisioning is complete on all inst
 
 ### Requirement: Base Instance Software
 
-All EC2 instances (Agent, Proxy, Gateway) SHALL have AWS CLI v2 installed via shared base user data.
+All EC2 instances (Agent, Gateway) SHALL have AWS CLI v2 installed via shared base user data.
 
 #### Scenario: AWS CLI availability
 
@@ -304,7 +299,6 @@ Each EC2 instance SHALL have a default instance type sized for its workload.
 
 - **WHEN** the stack is deployed with default props
 - **THEN** the Agent instance SHALL default to t3a.large (8 GB RAM)
-- **AND** the Proxy instance SHALL default to t3a.micro (1 GB RAM)
 - **AND** the Gateway instance SHALL default to t3a.small (2 GB RAM)
 
 #### Scenario: Custom instance type override
@@ -314,7 +308,7 @@ Each EC2 instance SHALL have a default instance type sized for its workload.
 
 ### Requirement: Software Provisioning Verification
 
-The integration test suite SHALL verify that each EC2 instance has its expected software installed and on `$PATH` after cloud-init completes. System binaries (node, docker, aws) SHALL be checked as root. Non-system binaries installed via npm globals or manual extraction (openclaw, openclaw-aws-proxy, signal-cli) SHALL be checked as the ubuntu user.
+The integration test suite SHALL verify that each EC2 instance has its expected software installed and on `$PATH` after cloud-init completes. System binaries (node, docker, aws) SHALL be checked as root. Non-system binaries installed via npm globals or manual extraction (openclaw, signal-cli) SHALL be checked as the ubuntu user.
 
 #### Scenario: Agent Server provisioning
 
@@ -323,13 +317,6 @@ The integration test suite SHALL verify that each EC2 instance has its expected 
 - **AND** `which docker` SHALL exit 0
 - **AND** `which aws` SHALL exit 0
 - **AND** `which openclaw` SHALL exit 0 (as the ubuntu user)
-
-#### Scenario: Proxy Server provisioning
-
-- **WHEN** the Proxy Server has completed cloud-init
-- **THEN** `which node` SHALL exit 0
-- **AND** `which aws` SHALL exit 0
-- **AND** `which openclaw-aws-proxy` SHALL exit 0 (as the ubuntu user)
 
 #### Scenario: Gateway Server provisioning
 
@@ -350,13 +337,6 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 - **AND** it SHALL discover the Agent Server instance ID using `discoverInstances` from the shared package
 - **AND** it SHALL start an interactive SSM session with `--document-name ubuntu`
 
-#### Scenario: Login to proxy server (test)
-
-- **WHEN** `pnpm run login:proxy:test` is executed
-- **THEN** it SHALL resolve the region from `CDK_AZ_TEST` in `.env`
-- **AND** it SHALL discover the Proxy Server instance ID using `discoverInstances` from the shared package
-- **AND** it SHALL start an interactive SSM session with `--document-name ubuntu`
-
 #### Scenario: Login to gateway server (prod)
 
 - **WHEN** `pnpm run login:gateway:prod` is executed
@@ -367,7 +347,7 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 #### Scenario: Invalid server name
 
 - **WHEN** `login.ts` is invoked with an unrecognized server name
-- **THEN** it SHALL exit with an error listing valid server names (agent, proxy, gateway)
+- **THEN** it SHALL exit with an error listing valid server names (agent, gateway)
 
 #### Scenario: Stack not deployed
 
@@ -419,7 +399,7 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 #### Scenario: Agent Server setup via wizard
 
 - **WHEN** a user configures OpenClaw on the Agent Server
-- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --mode remote --remote-url "ws://gateway.vpc:18789" --auth-choice custom-api-key --custom-base-url "http://venice.proxy.vpc:8080" --custom-api-key "proxy-managed" --custom-model-id "venice/zai-org-glm-5" --custom-compatibility openai --skip-channels --skip-skills --skip-daemon` on the Agent Server
+- **THEN** the documentation SHALL instruct running `openclaw onboard` with appropriate flags for remote mode connecting to `ws://gateway.vpc:18789`, using the LLM provider API key from Secrets Manager
 
 #### Scenario: Agent Server gateway token configuration
 

@@ -34,7 +34,6 @@ async function waitForReady() {
   const instances = await discoverInstances(cfn, ec2, STACK_NAME);
   const instanceIds = [
     instances.agentInstanceId,
-    instances.proxyServerInstanceId,
     instances.gatewayServerInstanceId,
   ];
 
@@ -43,11 +42,9 @@ async function waitForReady() {
 
   console.log('\nAll servers ready!\n');
   console.log(`  Agent Server     ${instances.agentInstanceId}`);
-  console.log(`  Proxy Server     ${instances.proxyServerInstanceId}`);
   console.log(`  Gateway Server   ${instances.gatewayServerInstanceId}`);
   console.log('\nConnect with:');
   console.log(`  aws ssm start-session --target ${instances.agentInstanceId}   # Agent`);
-  console.log(`  aws ssm start-session --target ${instances.proxyServerInstanceId}   # Proxy`);
   console.log(`  aws ssm start-session --target ${instances.gatewayServerInstanceId}   # Gateway`);
 }
 

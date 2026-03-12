@@ -4,10 +4,10 @@ context: |
   Tech stack: TypeScript, AWS CDK v2, pnpm workspaces
   Package manager: pnpm
   Testing: Jest with CDK assertions library
-  Infrastructure: 3 EC2 instances (Agent Server, Proxy Server, Gateway Server) with IAM role separation
-  Security model: Per-server IAM roles enforce least privilege (agent-server cannot read API keys, proxy-server cannot sign transactions, gateway-server has neither)
-  Key services: KMS (ECC_NIST_P256 wallet), Secrets Manager (API keys), Route 53 (private DNS), SSM (proxy-server config)
-  Deployment: CDK synth/deploy with .env-driven provider configuration
+  Infrastructure: 2 EC2 instances (Agent Server, Gateway Server) with IAM role separation
+  Security model: Per-server IAM roles enforce least privilege (agent-server has KMS and Secrets Manager access, gateway-server has neither)
+  Key services: KMS (ECC_NIST_P256 wallet), Secrets Manager (API keys), Route 53 (private DNS)
+  Deployment: CDK synth/deploy with .env-driven configuration
 
 rules:
   specs:

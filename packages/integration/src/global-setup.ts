@@ -11,11 +11,10 @@ export default async function globalSetup(): Promise<void> {
 
   const instances = await discoverInstances(cfn, ec2, STACK_NAME);
 
-  console.log(`Agent: ${instances.agentInstanceId}, Proxy Server: ${instances.proxyServerInstanceId}, Gateway Server: ${instances.gatewayServerInstanceId}`);
+  console.log(`Agent: ${instances.agentInstanceId}, Gateway Server: ${instances.gatewayServerInstanceId}`);
 
   const instanceIds = [
     instances.agentInstanceId,
-    instances.proxyServerInstanceId,
     instances.gatewayServerInstanceId,
   ];
 

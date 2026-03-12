@@ -1,30 +1,24 @@
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 
-// --- Provider Registry ---
+// --- Provider Registries (validation-only, OpenClaw handles routing natively) ---
 
-export type InjectConfig =
-  | { type: 'header'; name: string; prefix?: string }
-  | { type: 'path' };
+export const LLM_PROVIDERS: Record<string, { domain: string }> = {
+  venice:     { domain: 'api.venice.ai' },
+  anthropic:  { domain: 'api.anthropic.com' },
+  openai:     { domain: 'api.openai.com' },
+  google:     { domain: 'generativelanguage.googleapis.com' },
+  mistral:    { domain: 'api.mistral.ai' },
+  groq:       { domain: 'api.groq.com' },
+  xai:        { domain: 'api.x.ai' },
+  openrouter: { domain: 'openrouter.ai' },
+  cerebras:   { domain: 'api.cerebras.ai' },
+};
 
-// api: matches OpenClaw's --custom-compatibility flag (anthropic | openai | null for non-LLM services)
-export type ProviderConfig = { envVar: string; inject: InjectConfig; subdomain: string; api: string | null };
-
-export const PROVIDER_REGISTRY: Record<string, ProviderConfig> = {
-  // LLM providers
-  'api.anthropic.com':                 { envVar: 'ANTHROPIC_API_KEY',  inject: { type: 'header', name: 'x-api-key' },                          subdomain: 'anthropic',  api: 'anthropic' },
-  'api.openai.com':                    { envVar: 'OPENAI_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'openai',     api: 'openai' },
-  'generativelanguage.googleapis.com': { envVar: 'GOOGLE_API_KEY',     inject: { type: 'header', name: 'x-goog-api-key' },                    subdomain: 'google',     api: 'openai' },
-  'api.mistral.ai':                    { envVar: 'MISTRAL_API_KEY',    inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'mistral',    api: 'openai' },
-  'api.groq.com':                      { envVar: 'GROQ_API_KEY',       inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'groq',       api: 'openai' },
-  'api.x.ai':                          { envVar: 'XAI_API_KEY',        inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'xai',        api: 'openai' },
-  'openrouter.ai':                     { envVar: 'OPENROUTER_API_KEY', inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'openrouter', api: 'openai' },
-  'api.venice.ai':                     { envVar: 'VENICE_API_KEY',     inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'venice',     api: 'openai' },
-  'api.cerebras.ai':                   { envVar: 'CEREBRAS_API_KEY',   inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'cerebras',   api: 'openai' },
-  // Starknet RPC providers (Alchemy, Infura use API key in URL path -- industry convention)
-  'starknet-mainnet.g.alchemy.com':    { envVar: 'ALCHEMY_API_KEY',    inject: { type: 'path' },                                               subdomain: 'alchemy',    api: null },
-  'starknet-mainnet.infura.io':        { envVar: 'INFURA_API_KEY',     inject: { type: 'path' },                                               subdomain: 'infura',     api: null },
-  'api.cartridge.gg':                  { envVar: 'CARTRIDGE_API_KEY',  inject: { type: 'header', name: 'Authorization', prefix: 'Bearer ' },   subdomain: 'cartridge',  api: null },
-  'data.voyager.online':               { envVar: 'VOYAGER_API_KEY',    inject: { type: 'header', name: 'x-apikey' },                           subdomain: 'voyager',    api: null },
+export const RPC_PROVIDERS: Record<string, { domain: string }> = {
+  alchemy:   { domain: 'starknet-mainnet.g.alchemy.com' },
+  infura:    { domain: 'starknet-mainnet.infura.io' },
+  cartridge: { domain: 'api.cartridge.gg' },
+  voyager:   { domain: 'data.voyager.online' },
 };
 
 // --- Ubuntu User Data ---
@@ -69,16 +63,45 @@ export function requireBraveApiKey(): string {
   return key;
 }
 
-/** Validates that at least one LLM provider key is set in .env. Throws if none are found. */
-export function requireAtLeastOneLlmProvider(): void {
-  const llmProviders = Object.values(PROVIDER_REGISTRY).filter((c) => c.api !== null);
-  const hasLlmKey = llmProviders.some((c) => !!process.env[c.envVar]);
-  if (!hasLlmKey) {
-    const varNames = llmProviders.map((c) => c.envVar).join(', ');
+/** Validates that LLM_PROVIDER and LLM_API_KEY are set in .env. Returns the API key. */
+export function requireLlmProvider(): string {
+  const provider = process.env.LLM_PROVIDER;
+  if (!provider) {
     throw new Error(
-      `At least one LLM provider API key is required in .env -- an agent without an LLM cannot function. Set one of: ${varNames}`,
+      `LLM_PROVIDER is required in .env. Set one of: ${Object.keys(LLM_PROVIDERS).join(', ')}`,
     );
   }
+  if (!LLM_PROVIDERS[provider]) {
+    throw new Error(
+      `Unknown LLM_PROVIDER "${provider}". Must be one of: ${Object.keys(LLM_PROVIDERS).join(', ')}`,
+    );
+  }
+  const apiKey = process.env.LLM_API_KEY;
+  if (!apiKey) {
+    throw new Error('LLM_API_KEY is required in .env when LLM_PROVIDER is set.');
+  }
+  return apiKey;
+}
+
+/** Optionally resolves RPC_PROVIDER + RPC_API_KEY from .env. Returns the API key or null. */
+export function resolveRpcProvider(): string | null {
+  const provider = process.env.RPC_PROVIDER;
+  const apiKey = process.env.RPC_API_KEY;
+  if (!provider && !apiKey) return null;
+  if (!provider) {
+    throw new Error(
+      `RPC_PROVIDER is required in .env when RPC_API_KEY is set. Set one of: ${Object.keys(RPC_PROVIDERS).join(', ')}`,
+    );
+  }
+  if (!RPC_PROVIDERS[provider]) {
+    throw new Error(
+      `Unknown RPC_PROVIDER "${provider}". Must be one of: ${Object.keys(RPC_PROVIDERS).join(', ')}`,
+    );
+  }
+  if (!apiKey) {
+    throw new Error('RPC_API_KEY is required in .env when RPC_PROVIDER is set.');
+  }
+  return apiKey;
 }
 
 // --- Agent Machine Configuration ---

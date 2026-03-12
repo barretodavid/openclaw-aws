@@ -17,9 +17,7 @@ const POLL_INTERVAL_MS = 10_000;
 
 export interface InstanceInfo {
   agentInstanceId: string;
-  proxyServerInstanceId: string;
   gatewayServerInstanceId: string;
-  proxyServerPrivateIp: string;
   gatewayServerPrivateIp: string;
 }
 
@@ -51,14 +49,12 @@ export async function discoverInstances(
   );
 
   const allInstances = instances.Reservations?.flatMap((r) => r.Instances ?? []) ?? [];
-  if (allInstances.length !== 3) {
-    throw new Error(`Expected 3 running instances, found ${allInstances.length}`);
+  if (allInstances.length !== 2) {
+    throw new Error(`Expected 2 running instances, found ${allInstances.length}`);
   }
 
   let agentInstanceId = '';
-  let proxyServerInstanceId = '';
   let gatewayServerInstanceId = '';
-  let proxyServerPrivateIp = '';
   let gatewayServerPrivateIp = '';
 
   for (const instance of allInstances) {
@@ -68,26 +64,21 @@ export async function discoverInstances(
 
     if (iamProfile.includes('Agent')) {
       agentInstanceId = id;
-    } else if (iamProfile.includes('Proxy')) {
-      proxyServerInstanceId = id;
-      proxyServerPrivateIp = privateIp;
     } else if (iamProfile.includes('Gateway')) {
       gatewayServerInstanceId = id;
       gatewayServerPrivateIp = privateIp;
     }
   }
 
-  if (!agentInstanceId || !proxyServerInstanceId || !gatewayServerInstanceId) {
+  if (!agentInstanceId || !gatewayServerInstanceId) {
     throw new Error(
-      `Could not identify all instances. Agent: ${agentInstanceId}, Proxy: ${proxyServerInstanceId}, Gateway: ${gatewayServerInstanceId}`,
+      `Could not identify all instances. Agent: ${agentInstanceId}, Gateway: ${gatewayServerInstanceId}`,
     );
   }
 
   return {
     agentInstanceId,
-    proxyServerInstanceId,
     gatewayServerInstanceId,
-    proxyServerPrivateIp,
     gatewayServerPrivateIp,
   };
 }

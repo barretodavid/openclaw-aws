@@ -16,13 +16,9 @@
     "login:agent": "pnpm --filter cdk run login agent prod",
     "login:agent:prod": "pnpm --filter cdk run login agent prod",
     "login:agent:test": "pnpm --filter cdk run login agent test",
-    "login:proxy": "pnpm --filter cdk run login proxy prod",
-    "login:proxy:prod": "pnpm --filter cdk run login proxy prod",
-    "login:proxy:test": "pnpm --filter cdk run login proxy test",
     "login:gateway": "pnpm --filter cdk run login gateway prod",
     "login:gateway:prod": "pnpm --filter cdk run login gateway prod",
-    "login:gateway:test": "pnpm --filter cdk run login gateway test",
-    "publish:proxy": "pnpm --filter openclaw-aws-proxy publish"
+    "login:gateway:test": "pnpm --filter cdk run login gateway test"
   },
   "devDependencies": {
     "@tsconfig/node22": "22.0.5",
