@@ -17,7 +17,7 @@ describe('IAM Boundary Verification', () => {
   test('Agent Server can read Web Search secret from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.agentInstanceId,
-      `aws secretsmanager get-secret-value --secret-id openclaw/web-api-key --region ${TEST_REGION} --query SecretString --output text`,
+      `aws secretsmanager get-secret-value --secret-id openclaw/web-search-api-key --region ${TEST_REGION} --query SecretString --output text`,
     );
 
     expect(result.stdout.trim()).toBeTruthy();

@@ -132,7 +132,7 @@ export class OpenclawStack extends cdk.Stack {
     // --- Web Search Secret (Agent Server only) ---
     const webApiKey = requireWebProvider();
     const webSecret = new secretsmanager.Secret(this, 'WebApiKeySecret', {
-      secretName: 'openclaw/web-api-key',
+      secretName: 'openclaw/web-search-api-key',
       description: 'Web search provider API key - only the Agent Server EC2 can read this',
       secretStringValue: cdk.SecretValue.unsafePlainText(webApiKey),
     });

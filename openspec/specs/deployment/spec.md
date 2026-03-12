@@ -8,36 +8,36 @@ The infrastructure SHALL be deployable and destroyable via CDK with .env-driven 
 
 ### Requirement: Web Search API Key
 
-The web search API key SHALL be stored in Secrets Manager and accessible only to the Agent Server. The provider SHALL be configurable via `WEB_PROVIDER` in `.env`.
+The web search API key SHALL be stored in Secrets Manager and accessible only to the Agent Server. The provider SHALL be configurable via `WEB_SEARCH_PROVIDER` in `.env`.
 
 #### Scenario: Required provider and API key in .env
 
-- **WHEN** `WEB_PROVIDER` is not set or empty in `.env`
-- **THEN** CDK synth SHALL fail with an error indicating that `WEB_PROVIDER` is required and listing the supported providers (brave, gemini, grok, kimi, perplexity)
+- **WHEN** `WEB_SEARCH_PROVIDER` is not set or empty in `.env`
+- **THEN** CDK synth SHALL fail with an error indicating that `WEB_SEARCH_PROVIDER` is required and listing the supported providers (brave, gemini, grok, kimi, perplexity)
 
 #### Scenario: Unknown provider
 
-- **WHEN** `WEB_PROVIDER` is set to an unrecognized value
+- **WHEN** `WEB_SEARCH_PROVIDER` is set to an unrecognized value
 - **THEN** CDK synth SHALL fail with an error indicating the provider is unknown and listing the supported providers
 
 #### Scenario: Missing API key
 
-- **WHEN** `WEB_PROVIDER` is set but `WEB_API_KEY` is not set or empty
-- **THEN** CDK synth SHALL fail with an error indicating that `WEB_API_KEY` is required when `WEB_PROVIDER` is set
+- **WHEN** `WEB_SEARCH_PROVIDER` is set but `WEB_SEARCH_API_KEY` is not set or empty
+- **THEN** CDK synth SHALL fail with an error indicating that `WEB_SEARCH_API_KEY` is required when `WEB_SEARCH_PROVIDER` is set
 
 #### Scenario: Secret creation
 
-- **GIVEN** `WEB_PROVIDER` and `WEB_API_KEY` are set in `.env`
+- **GIVEN** `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_API_KEY` are set in `.env`
 - **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `openclaw/web-api-key` SHALL be created
+- **THEN** a Secrets Manager secret named `openclaw/web-search-api-key` SHALL be created
 - **AND** only the Agent Server IAM role SHALL have read access to this secret
 - **AND** the Gateway Server role SHALL NOT have access to this secret
 
 #### Scenario: .env.example entry
 
 - **GIVEN** the `.env.example` file
-- **THEN** it SHALL include a `WEB_PROVIDER` entry with a comment listing supported providers (brave, gemini, grok, kimi, perplexity)
-- **AND** it SHALL include a `WEB_API_KEY` entry
+- **THEN** it SHALL include a `WEB_SEARCH_PROVIDER` entry with a comment listing supported providers (brave, gemini, grok, kimi, perplexity)
+- **AND** it SHALL include a `WEB_SEARCH_API_KEY` entry
 
 ### Requirement: LLM API Key Required
 
@@ -77,7 +77,7 @@ Deployment SHALL be controlled by .env file entries. Region SHALL always be deri
 - **GIVEN** the `.env` file
 - **THEN** it SHALL use `LLM_PROVIDER` and `LLM_API_KEY` for the LLM provider configuration
 - **AND** it SHALL use `RPC_PROVIDER` and `RPC_API_KEY` for the RPC provider configuration
-- **AND** it SHALL use `WEB_PROVIDER` and `WEB_API_KEY` for the web search provider configuration
+- **AND** it SHALL use `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_API_KEY` for the web search provider configuration
 
 #### Scenario: CDK availability zone input
 
@@ -428,7 +428,7 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 
 - **WHEN** a user configures web search on the Agent Server
 - **THEN** it SHALL document running `openclaw secrets configure` to set up the exec SecretRef provider
-- **AND** it SHALL provide step-by-step wizard guidance: provider name `web`, source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/web-api-key --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
+- **AND** it SHALL provide step-by-step wizard guidance: provider name `web`, source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/web-search-api-key --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
 - **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
 - **AND** it SHALL instruct selecting the appropriate credential field from the credential list (`tools.web.search.apiKey` for brave, `tools.web.search.<provider>.apiKey` for others), with source `exec`, provider `web`, and secret ID `value`
 

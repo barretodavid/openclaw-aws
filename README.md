@@ -111,8 +111,8 @@ RPC_API_KEY=abc123...
 
 # Web search provider (required)
 # Supported: brave, gemini, grok, kimi, perplexity
-WEB_PROVIDER=brave
-WEB_API_KEY=...
+WEB_SEARCH_PROVIDER=brave
+WEB_SEARCH_API_KEY=...
 ```
 
 Both `CDK_AZ_PROD` and `CDK_AZ_TEST` are required. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`). The prod and test AZs **must be in different regions** to avoid collisions on account-scoped resources (Secrets Manager, IAM roles).
@@ -278,7 +278,7 @@ Configure web search by running `openclaw secrets configure` and following the p
    - Name: `web`
    - Source: `exec`
    - Command: `/usr/local/bin/aws`
-   - Args: `secretsmanager get-secret-value --secret-id openclaw/web-api-key --query SecretString --output text`
+   - Args: `secretsmanager get-secret-value --secret-id openclaw/web-search-api-key --query SecretString --output text`
    - passEnv: `HOME`
    - jsonOnly: `false`
 

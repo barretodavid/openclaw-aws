@@ -21,7 +21,7 @@ export const RPC_PROVIDERS: Record<string, { domain: string }> = {
   voyager:   { domain: 'data.voyager.online' },
 };
 
-export const WEB_PROVIDERS: Record<string, { domain: string }> = {
+export const WEB_SEARCH_PROVIDERS: Record<string, { domain: string }> = {
   brave:      { domain: 'api.search.brave.com' },
   gemini:     { domain: 'generativelanguage.googleapis.com' },
   grok:       { domain: 'api.x.ai' },
@@ -62,22 +62,22 @@ export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
 
 // --- Required Keys ---
 
-/** Validates that WEB_PROVIDER and WEB_API_KEY are set in .env. Returns the API key. */
+/** Validates that WEB_SEARCH_PROVIDER and WEB_SEARCH_API_KEY are set in .env. Returns the API key. */
 export function requireWebProvider(): string {
-  const provider = process.env.WEB_PROVIDER;
+  const provider = process.env.WEB_SEARCH_PROVIDER;
   if (!provider) {
     throw new Error(
-      `WEB_PROVIDER is required in .env. Set one of: ${Object.keys(WEB_PROVIDERS).join(', ')}`,
+      `WEB_SEARCH_PROVIDER is required in .env. Set one of: ${Object.keys(WEB_SEARCH_PROVIDERS).join(', ')}`,
     );
   }
-  if (!WEB_PROVIDERS[provider]) {
+  if (!WEB_SEARCH_PROVIDERS[provider]) {
     throw new Error(
-      `Unknown WEB_PROVIDER "${provider}". Must be one of: ${Object.keys(WEB_PROVIDERS).join(', ')}`,
+      `Unknown WEB_SEARCH_PROVIDER "${provider}". Must be one of: ${Object.keys(WEB_SEARCH_PROVIDERS).join(', ')}`,
     );
   }
-  const apiKey = process.env.WEB_API_KEY;
+  const apiKey = process.env.WEB_SEARCH_API_KEY;
   if (!apiKey) {
-    throw new Error('WEB_API_KEY is required in .env when WEB_PROVIDER is set.');
+    throw new Error('WEB_SEARCH_API_KEY is required in .env when WEB_SEARCH_PROVIDER is set.');
   }
   return apiKey;
 }

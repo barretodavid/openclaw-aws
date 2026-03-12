@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack } from '../lib/openclaw-stack';
-import { LLM_PROVIDERS, RPC_PROVIDERS, WEB_PROVIDERS } from '../lib/ec2-config';
+import { LLM_PROVIDERS, RPC_PROVIDERS, WEB_SEARCH_PROVIDERS } from '../lib/ec2-config';
 import { resolveRegionConfig } from '../lib/region-config';
 
 /** Default config values for tests (mirrors production defaults in bin/openclaw.ts). */
@@ -21,8 +21,8 @@ const MOCK_ENV_VARS: Record<string, string> = {
   LLM_API_KEY: 'test-venice-key',
   RPC_PROVIDER: 'alchemy',
   RPC_API_KEY: 'test-alchemy-key',
-  WEB_PROVIDER: 'brave',
-  WEB_API_KEY: 'test-brave-key',
+  WEB_SEARCH_PROVIDER: 'brave',
+  WEB_SEARCH_API_KEY: 'test-brave-key',
 };
 
 /** Save and clear provider-related env vars, set mock values. */
@@ -30,7 +30,7 @@ const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
   // Save and clear any existing env vars that could interfere
-  for (const key of ['LLM_PROVIDER', 'LLM_API_KEY', 'RPC_PROVIDER', 'RPC_API_KEY', 'WEB_PROVIDER', 'WEB_API_KEY']) {
+  for (const key of ['LLM_PROVIDER', 'LLM_API_KEY', 'RPC_PROVIDER', 'RPC_API_KEY', 'WEB_SEARCH_PROVIDER', 'WEB_SEARCH_API_KEY']) {
     savedEnv[key] = process.env[key];
     delete process.env[key];
   }
@@ -511,37 +511,37 @@ describe('Cross-Resource Relationships', () => {
 describe('Web Search Secret', () => {
   test('Web API key secret exists with correct name', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: 'openclaw/web-api-key',
+      Name: 'openclaw/web-search-api-key',
     });
   });
 
-  test('CDK synth fails when WEB_PROVIDER is missing', () => {
-    const saved = process.env.WEB_PROVIDER;
-    delete process.env.WEB_PROVIDER;
+  test('CDK synth fails when WEB_SEARCH_PROVIDER is missing', () => {
+    const saved = process.env.WEB_SEARCH_PROVIDER;
+    delete process.env.WEB_SEARCH_PROVIDER;
     try {
-      expect(() => createStackWithConfig()).toThrow(/WEB_PROVIDER is required/);
+      expect(() => createStackWithConfig()).toThrow(/WEB_SEARCH_PROVIDER is required/);
     } finally {
-      process.env.WEB_PROVIDER = saved;
+      process.env.WEB_SEARCH_PROVIDER = saved;
     }
   });
 
-  test('CDK synth fails when WEB_PROVIDER is unrecognized', () => {
-    const saved = process.env.WEB_PROVIDER;
-    process.env.WEB_PROVIDER = 'nonexistent';
+  test('CDK synth fails when WEB_SEARCH_PROVIDER is unrecognized', () => {
+    const saved = process.env.WEB_SEARCH_PROVIDER;
+    process.env.WEB_SEARCH_PROVIDER = 'nonexistent';
     try {
-      expect(() => createStackWithConfig()).toThrow(/Unknown WEB_PROVIDER/);
+      expect(() => createStackWithConfig()).toThrow(/Unknown WEB_SEARCH_PROVIDER/);
     } finally {
-      process.env.WEB_PROVIDER = saved;
+      process.env.WEB_SEARCH_PROVIDER = saved;
     }
   });
 
-  test('CDK synth fails when WEB_API_KEY is missing', () => {
-    const saved = process.env.WEB_API_KEY;
-    delete process.env.WEB_API_KEY;
+  test('CDK synth fails when WEB_SEARCH_API_KEY is missing', () => {
+    const saved = process.env.WEB_SEARCH_API_KEY;
+    delete process.env.WEB_SEARCH_API_KEY;
     try {
-      expect(() => createStackWithConfig()).toThrow(/WEB_API_KEY is required/);
+      expect(() => createStackWithConfig()).toThrow(/WEB_SEARCH_API_KEY is required/);
     } finally {
-      process.env.WEB_API_KEY = saved;
+      process.env.WEB_SEARCH_API_KEY = saved;
     }
   });
 });
