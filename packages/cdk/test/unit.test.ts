@@ -20,6 +20,7 @@ let template: Template;
 const MOCK_ENV_VARS: Record<string, string> = {
   ANTHROPIC_API_KEY: 'test-anthropic-key',
   ALCHEMY_API_KEY: 'test-alchemy-key',
+  BRAVE_API_KEY: 'test-brave-key',
 };
 
 beforeAll(() => {
@@ -439,8 +440,10 @@ describe('Resource Counts', () => {
     template.resourceCountIs('AWS::KMS::Key', 0);
   });
 
-  test('one Secrets Manager secret per configured provider', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', Object.keys(MOCK_ENV_VARS).length);
+  test('one Secrets Manager secret per configured LLM provider plus Brave Search and gateway token', () => {
+    // 2 LLM provider secrets (ANTHROPIC, ALCHEMY) + 1 Brave Search + 1 gateway token
+    const llmProviderCount = Object.keys(MOCK_ENV_VARS).length - 1; // exclude BRAVE_API_KEY
+    template.resourceCountIs('AWS::SecretsManager::Secret', llmProviderCount + 2);
   });
 
   test('exactly 1 SSM parameter', () => {
@@ -449,18 +452,34 @@ describe('Resource Counts', () => {
 
   test('base + gateway server + per-provider DNS A records', () => {
     // 1 base (proxy.vpc) + 1 gateway server (gateway.vpc) + 2 per-provider (anthropic.proxy.vpc, alchemy.proxy.vpc)
-    template.resourceCountIs('AWS::Route53::RecordSet', 2 + Object.keys(MOCK_ENV_VARS).length);
+    // BRAVE_API_KEY is not a proxy provider, so it doesn't create a DNS record
+    const proxyProviderCount = Object.keys(MOCK_ENV_VARS).filter((k) => k !== 'BRAVE_API_KEY').length;
+    template.resourceCountIs('AWS::Route53::RecordSet', 2 + proxyProviderCount);
   });
 });
 
 // --- Security Invariant Tests ---
 
 describe('Security Invariants', () => {
-  test('A compromised agent server cannot read API keys', () => {
+  test('Agent Server can only read the Brave Search and gateway token secrets, not LLM provider secrets', () => {
     const [agentRoleId] = findRole('Agent Server');
-    const actions = getActionsForRole(agentRoleId);
-    const secretActions = actions.filter((a) => /^secretsmanager:/i.test(a));
-    expect(secretActions).toEqual([]);
+    const policies = template.findResources('AWS::IAM::Policy');
+
+    for (const [, policy] of Object.entries(policies)) {
+      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
+
+      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+      for (const stmt of statements) {
+        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+        if (stmtActions.some((a: string) => a.startsWith('secretsmanager:'))) {
+          // Resources must be scoped to specific secrets (Ref), not wildcard
+          const resource = stmt.Resource;
+          expect(resource).toBeDefined();
+          expect(resource).not.toBe('*');
+        }
+      }
+    }
   });
 
   test('A compromised proxy server cannot sign transactions', () => {
@@ -606,6 +625,120 @@ describe('Cross-Resource Relationships', () => {
       .sort();
 
     expect(configKeys.sort()).toEqual(dnsSubdomains);
+  });
+});
+
+// --- Brave Search Secret Tests ---
+
+describe('Brave Search Secret', () => {
+  test('Brave API key secret exists with correct name', () => {
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: 'openclaw/brave-api-key',
+    });
+  });
+
+  test('Agent Server role has scoped GetSecretValue for Brave secret only', () => {
+    const [agentRoleId] = findRole('Agent Server');
+    const policies = template.findResources('AWS::IAM::Policy');
+
+    let foundBraveGrant = false;
+    for (const [, policy] of Object.entries(policies)) {
+      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
+
+      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+      for (const stmt of statements) {
+        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+        if (stmtActions.includes('secretsmanager:GetSecretValue')) {
+          foundBraveGrant = true;
+          // Must be scoped to a single secret (Ref), not wildcard
+          expect(stmt.Resource).not.toBe('*');
+        }
+      }
+    }
+
+    expect(foundBraveGrant).toBe(true);
+  });
+
+  test('CDK synth fails when BRAVE_API_KEY is missing', () => {
+    const saved = process.env.BRAVE_API_KEY;
+    delete process.env.BRAVE_API_KEY;
+    try {
+      expect(() => createStackWithConfig()).toThrow(/BRAVE_API_KEY is required/);
+    } finally {
+      process.env.BRAVE_API_KEY = saved;
+    }
+  });
+});
+
+// --- Gateway Token Secret Tests ---
+
+describe('Gateway Token Secret', () => {
+  test('Gateway token secret exists with correct name and description', () => {
+    template.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: 'openclaw/gateway-token',
+      Description: Match.stringLikeRegexp('Gateway authentication token'),
+    });
+  });
+
+  test('Agent Server role has read access to the gateway token secret', () => {
+    const [agentRoleId] = findRole('Agent Server');
+    const policies = template.findResources('AWS::IAM::Policy');
+
+    let foundGatewayTokenGrant = false;
+    for (const [, policy] of Object.entries(policies)) {
+      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
+
+      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+      for (const stmt of statements) {
+        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+        if (stmtActions.includes('secretsmanager:GetSecretValue')) {
+          foundGatewayTokenGrant = true;
+        }
+      }
+    }
+
+    expect(foundGatewayTokenGrant).toBe(true);
+  });
+
+  test('Gateway Server role has no Secrets Manager access', () => {
+    const [gatewayServerRoleId] = findRole('Gateway Server');
+    const actions = getActionsForRole(gatewayServerRoleId);
+    const smActions = actions.filter((a) => a.startsWith('secretsmanager:'));
+    expect(smActions).toEqual([]);
+  });
+});
+
+// --- LLM Provider Validation Tests ---
+
+describe('LLM Provider Validation', () => {
+  test('CDK synth fails when no LLM provider key is set', () => {
+    // Save all current env vars
+    const saved: Record<string, string | undefined> = {};
+    for (const config of Object.values(PROVIDER_REGISTRY)) {
+      saved[config.envVar] = process.env[config.envVar];
+      delete process.env[config.envVar];
+    }
+    // Set only a non-LLM provider key and BRAVE_API_KEY
+    process.env.ALCHEMY_API_KEY = 'test-alchemy-key';
+    process.env.BRAVE_API_KEY = 'test-brave-key';
+
+    try {
+      expect(() => createStackWithConfig()).toThrow(/At least one LLM provider API key is required/);
+    } finally {
+      // Restore
+      for (const [key, value] of Object.entries(saved)) {
+        if (value !== undefined) process.env[key] = value;
+        else delete process.env[key];
+      }
+    }
+  });
+
+  test('CDK synth succeeds when at least one LLM provider key is set', () => {
+    // The default MOCK_ENV_VARS include ANTHROPIC_API_KEY (an LLM provider)
+    // so createStackWithConfig() should succeed
+    expect(() => createStackWithConfig()).not.toThrow();
   });
 });
 

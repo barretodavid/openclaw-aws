@@ -16,7 +16,8 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 - **WHEN** its IAM role is evaluated
 - **THEN** it SHALL have KMS permissions (CreateKey, Sign, GetPublicKey, DescribeKey) restricted to wallet-tagged keys
 - **AND** it SHALL have tag:GetResources for key discovery
-- **AND** it SHALL NOT have any Secrets Manager permissions
+- **AND** it SHALL have Secrets Manager read access scoped to the `openclaw/brave-api-key` and `openclaw/gateway-token` secrets only
+- **AND** it SHALL NOT have Secrets Manager access to any LLM provider secrets
 - **AND** it SHALL have SSM Session Manager access
 
 #### Scenario: Proxy role permissions

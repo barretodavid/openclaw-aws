@@ -58,6 +58,29 @@ export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
   ];
 }
 
+// --- Required Keys ---
+
+/** Validates that BRAVE_API_KEY is set in .env. Throws if missing or empty. */
+export function requireBraveApiKey(): string {
+  const key = process.env.BRAVE_API_KEY;
+  if (!key) {
+    throw new Error('BRAVE_API_KEY is required in .env -- the agent needs Brave Search for web access.');
+  }
+  return key;
+}
+
+/** Validates that at least one LLM provider key is set in .env. Throws if none are found. */
+export function requireAtLeastOneLlmProvider(): void {
+  const llmProviders = Object.values(PROVIDER_REGISTRY).filter((c) => c.api !== null);
+  const hasLlmKey = llmProviders.some((c) => !!process.env[c.envVar]);
+  if (!hasLlmKey) {
+    const varNames = llmProviders.map((c) => c.envVar).join(', ');
+    throw new Error(
+      `At least one LLM provider API key is required in .env -- an agent without an LLM cannot function. Set one of: ${varNames}`,
+    );
+  }
+}
+
 // --- Agent Machine Configuration ---
 
 /** Configuration for the agent EC2 instance. */

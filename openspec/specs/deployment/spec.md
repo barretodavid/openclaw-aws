@@ -6,6 +6,53 @@ The infrastructure SHALL be deployable and destroyable via CDK with .env-driven 
 
 ## Requirements
 
+### Requirement: Brave Search API Key
+
+The Brave Search API key SHALL be stored in Secrets Manager and accessible only to the Agent Server.
+
+#### Scenario: Required API key in .env
+
+- **GIVEN** `BRAVE_API_KEY` is not set or empty in `.env`
+- **WHEN** CDK synth is executed
+- **THEN** it SHALL fail with an error indicating that `BRAVE_API_KEY` is required
+
+#### Scenario: Secret creation
+
+- **GIVEN** `BRAVE_API_KEY` is set in `.env`
+- **WHEN** the stack is deployed
+- **THEN** a Secrets Manager secret named `openclaw/brave-api-key` SHALL be created
+- **AND** only the Agent Server IAM role SHALL have read access to this secret
+- **AND** the Proxy Server and Gateway Server roles SHALL NOT have access to this secret
+
+#### Scenario: .env.example entry
+
+- **GIVEN** the `.env.example` file
+- **THEN** it SHALL include a `BRAVE_API_KEY` entry
+
+### Requirement: LLM Provider Key Required
+
+At least one LLM provider API key SHALL be set in `.env` for CDK synth to succeed.
+
+#### Scenario: No LLM provider key set
+
+- **GIVEN** no LLM provider key (entries in `PROVIDER_REGISTRY` where `api !== null`) is set in `.env`
+- **WHEN** CDK synth is executed
+- **THEN** it SHALL fail with an error indicating that at least one LLM provider key is required
+- **AND** the error message SHALL list all available LLM provider env var names
+
+#### Scenario: At least one LLM provider key set
+
+- **GIVEN** at least one LLM provider key is set in `.env`
+- **WHEN** CDK synth is executed
+- **THEN** the LLM provider validation SHALL pass
+
+#### Scenario: Only non-LLM provider keys set
+
+- **GIVEN** only non-LLM provider keys (entries where `api === null`) are set in `.env`
+- **AND** no LLM provider key is set
+- **WHEN** CDK synth is executed
+- **THEN** it SHALL fail with the same error as when no provider key is set
+
 ### Requirement: Environment-Driven Configuration
 
 Provider deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone. Production and test deployments SHALL use separate, explicitly configured availability zones.
@@ -329,64 +376,98 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 
 ### Requirement: Post-Deployment Setup Documentation
 
-The root README.md SHALL include an "OpenClaw Setup" section at the end documenting the CLI-only steps to configure and start OpenClaw after deployment. The section SHALL use Venice.ai as the concrete LLM provider and offer two setup paths: wizard (`openclaw onboard`) and manual (`openclaw config set`).
+The root README.md SHALL include an "OpenClaw Setup" section at the end documenting the CLI-only steps to configure and start OpenClaw after deployment. The section SHALL use Venice.ai as the concrete LLM provider. Both the Gateway Server and Agent Server use the `openclaw onboard` wizard.
 
-#### Scenario: Gateway Server setup via wizard (Option A)
+#### Scenario: Gateway Server login
 
-- **WHEN** a user follows the wizard path for the Gateway Server
-- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --flow quickstart --skip-channels --skip-skills --skip-search --skip-daemon` on the Gateway Server
-- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
+- **WHEN** a user begins Gateway Server setup
+- **THEN** the documentation SHALL instruct logging in with `pnpm run login:gateway`
 
-#### Scenario: Gateway Server setup via manual commands (Option B)
-
-- **WHEN** a user follows the manual path for the Gateway Server
-- **THEN** the documentation SHALL instruct running `openclaw config set session.dmScope per-channel-peer` on the Gateway Server
-
-#### Scenario: Gateway Server Signal registration (both paths)
+#### Scenario: Gateway Server Signal registration
 
 - **WHEN** a user configures Signal on the Gateway Server
 - **THEN** it SHALL document obtaining a captcha token from a laptop browser
 - **AND** it SHALL document registering a dedicated phone number with `signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"`
 - **AND** it SHALL document verifying the registration with `signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>`
-- **AND** it SHALL document adding the Signal channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
-- **AND** it SHALL document configuring the DM policy to allowlist with `openclaw config set channels.signal.dmPolicy allowlist`
-- **AND** it SHALL document adding the owner's phone number to the allowlist with `openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
 
-#### Scenario: Gateway Server service management (both paths)
+#### Scenario: Gateway Server onboard via wizard
+
+- **WHEN** a user configures the Gateway Server
+- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --flow quickstart --gateway-bind lan --skip-daemon` on the Gateway Server
+- **AND** it SHALL instruct adding the Signal channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
+- **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.signal.dmPolicy allowlist`
+- **AND** it SHALL instruct adding the owner's phone number to the allowlist with `openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
+- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
+
+#### Scenario: Gateway Server token export
+
+- **WHEN** a user has completed Gateway Server onboard
+- **THEN** it SHALL instruct reading the auto-generated token with `openclaw config get gateway.auth.token`
+- **AND** it SHALL instruct storing the token in Secrets Manager with `aws secretsmanager put-secret-value --secret-id openclaw/gateway-token --secret-string "<GATEWAY_TOKEN>"`
+
+#### Scenario: Gateway Server service management
 
 - **WHEN** a user starts the gateway service
 - **THEN** it SHALL document installing and starting the gateway service with `openclaw gateway install` and `openclaw gateway start`
 - **AND** it SHALL document enabling the gateway service on boot with `systemctl --user enable openclaw-gateway.service`
 
-#### Scenario: Agent Server setup via wizard (Option A)
+#### Scenario: Agent Server login
 
-- **WHEN** a user follows the wizard path for the Agent Server
-- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --mode remote --remote-url "ws://gateway.vpc:18789" --auth-choice custom-api-key --custom-base-url "http://venice.proxy.vpc:8080" --custom-api-key "proxy-managed" --custom-model-id "venice/zai-org-glm-5" --custom-compatibility openai --skip-channels --skip-skills --skip-search --skip-daemon` on the Agent Server
-- **AND** it SHALL instruct setting the image model with `openclaw models set-image venice/kimi-k2-5`
+- **WHEN** a user begins Agent Server setup
+- **THEN** the documentation SHALL instruct logging in with `pnpm run login:agent`
+
+#### Scenario: Agent Server setup via wizard
+
+- **WHEN** a user configures OpenClaw on the Agent Server
+- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --mode remote --remote-url "ws://gateway.vpc:18789" --auth-choice custom-api-key --custom-base-url "http://venice.proxy.vpc:8080" --custom-api-key "proxy-managed" --custom-model-id "venice/zai-org-glm-5" --custom-compatibility openai --skip-channels --skip-skills --skip-daemon` on the Agent Server
+
+#### Scenario: Agent Server gateway token configuration
+
+- **WHEN** a user configures the gateway token on the Agent Server
+- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider named `gateway-token` with source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/gateway-token --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
+- **AND** it SHALL instruct mapping `gateway.remote.token` to provider `gateway-token` with ID `value`
+
+#### Scenario: Agent Server model configuration
+
+- **WHEN** a user configures models on the Agent Server
+- **THEN** it SHALL instruct setting the image model with `openclaw models set-image venice/kimi-k2-5`
 - **AND** it SHALL instruct setting the fallback model with `openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'`
 
-#### Scenario: Agent Server setup via manual commands (Option B)
+#### Scenario: Agent Server Brave Search configuration
 
-- **WHEN** a user follows the manual path for the Agent Server
-- **THEN** the documentation SHALL instruct configuring the Venice provider with `openclaw config set models.providers.venice.baseUrl "http://venice.proxy.vpc:8080"` and `openclaw config set models.providers.venice.apiKey "proxy-managed"`
-- **AND** it SHALL instruct configuring the remote gateway with `openclaw config set gateway.mode remote` and `openclaw config set gateway.remote.url "ws://gateway.vpc:18789"`
-- **AND** it SHALL instruct setting the primary model with `openclaw models set venice/zai-org-glm-5`
-- **AND** it SHALL instruct setting the image model with `openclaw models set-image venice/kimi-k2-5`
-- **AND** it SHALL instruct setting the fallback model with `openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'`
+- **WHEN** a user configures Brave Search on the Agent Server
+- **THEN** it SHALL document running `openclaw secrets configure` to set up the exec SecretRef provider
+- **AND** it SHALL provide step-by-step wizard guidance: provider name `brave`, source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/brave-api-key --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
+- **AND** it SHALL instruct mapping `tools.web.search.apiKey` to provider `brave` with ID `value`
 
-#### Scenario: Agent Server start (both paths)
+#### Scenario: Agent Server start
 
 - **WHEN** a user starts the agent
 - **THEN** it SHALL document starting the agent with `openclaw agent`
 
-#### Scenario: Embeddings configuration
-
-- **WHEN** a user reads the Agent Server setup instructions
-- **THEN** the documentation SHALL note that memory search uses local embeddings by default and requires no configuration
-
 #### Scenario: Variable placeholders
 
 - **WHEN** a command contains user-specific values
-- **THEN** the documentation SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`)
+- **THEN** the documentation SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`, `<GATEWAY_TOKEN>`)
 - **AND** it SHALL define each placeholder with a brief description
 - **AND** it SHALL NOT use placeholders for LLM provider, model, or API key values (these SHALL use concrete Venice values)
+
+### Requirement: Gateway Token Secret
+
+The CDK stack SHALL create a Secrets Manager secret for the gateway authentication token, readable only by the Agent Server.
+
+#### Scenario: Secret creation
+
+- **WHEN** the stack is deployed
+- **THEN** a Secrets Manager secret named `openclaw/gateway-token` SHALL be created with a placeholder value
+- **AND** the secret description SHALL indicate it is for gateway authentication and is populated post-deploy
+
+#### Scenario: Agent Server access
+
+- **WHEN** the Agent Server IAM role is evaluated
+- **THEN** it SHALL have read access to the `openclaw/gateway-token` secret
+
+#### Scenario: Gateway Server access
+
+- **WHEN** the Gateway Server IAM role is evaluated
+- **THEN** it SHALL NOT have access to the `openclaw/gateway-token` secret

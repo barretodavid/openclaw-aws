@@ -24,7 +24,7 @@ The Gateway SHALL be provisioned with tools for messaging channel integrations a
 
 ### Requirement: WebSocket Endpoint
 
-The Gateway SHALL accept WebSocket connections from the Agent.
+The Gateway SHALL accept authenticated WebSocket connections from the Agent on all network interfaces.
 
 #### Scenario: Agent connectivity
 
@@ -32,6 +32,8 @@ The Gateway SHALL accept WebSocket connections from the Agent.
 - **WHEN** the connection is established
 - **THEN** the Gateway SHALL accept the connection on port 18789
 - **AND** OPENCLAW_ALLOW_INSECURE_PRIVATE_WS SHALL be set to allow plain ws://
+- **AND** the Gateway SHALL bind to all interfaces (LAN mode) so it is reachable from other EC2 instances
+- **AND** the Gateway SHALL require token authentication for all connections
 
 ### Requirement: Isolation
 

@@ -9,7 +9,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
-import { resolveAgentMachine, PROVIDER_REGISTRY, InjectConfig, ubuntuBaseUserData } from './ec2-config';
+import { resolveAgentMachine, PROVIDER_REGISTRY, InjectConfig, ubuntuBaseUserData, requireBraveApiKey, requireAtLeastOneLlmProvider } from './ec2-config';
 
 const PROXY_PORT = 8080;
 const GATEWAY_PORT = 18789;
@@ -128,6 +128,9 @@ export class OpenclawStack extends cdk.Stack {
       ],
     });
 
+    // --- Validate Required Keys ---
+    requireAtLeastOneLlmProvider();
+
     // --- Per-Provider Secrets + Proxy Server Config ---
     const proxyServerConfig: Record<string, { backendDomain: string; secretName: string; inject: InjectConfig; api: string | null }> = {};
 
@@ -145,6 +148,22 @@ export class OpenclawStack extends cdk.Stack {
 
       proxyServerConfig[config.subdomain] = { backendDomain: domain, secretName, inject: config.inject, api: config.api };
     }
+
+    // --- Brave Search Secret (Agent Server only) ---
+    const braveApiKey = requireBraveApiKey();
+    const braveSecret = new secretsmanager.Secret(this, 'BraveApiKeySecret', {
+      secretName: 'openclaw/brave-api-key',
+      description: 'Brave Search API key - only the Agent Server EC2 can read this',
+      secretStringValue: cdk.SecretValue.unsafePlainText(braveApiKey),
+    });
+    braveSecret.grantRead(agentRole);
+
+    // --- Gateway Token Secret (Agent Server reads, operator populates post-deploy) ---
+    const gatewayTokenSecret = new secretsmanager.Secret(this, 'GatewayTokenSecret', {
+      secretName: 'openclaw/gateway-token',
+      description: 'Gateway authentication token - populated post-deploy, only the Agent Server EC2 can read this',
+    });
+    gatewayTokenSecret.grantRead(agentRole);
 
     // --- SSM Parameter (Proxy Server Config) ---
     const proxyServerConfigParam = new ssm.StringParameter(this, 'ProxyServerConfig', {

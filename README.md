@@ -179,6 +179,13 @@ signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"
 signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>
 ```
 
+Configure the gateway with token auth and LAN binding
+
+```bash
+openclaw onboard --non-interactive --accept-risk \
+  --flow quickstart --gateway-bind lan --skip-daemon
+```
+
 Configure the communication channel with the agent
 
 ```bash
@@ -186,6 +193,13 @@ openclaw channels add --channel signal --account <PHONE_NUMBER>
 openclaw config set channels.signal.dmPolicy allowlist
 openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'
 openclaw config set session.dmScope per-channel-peer
+```
+
+Copy the auto-generated gateway token and store it in Secrets Manager so the Agent Server can authenticate
+
+```bash
+openclaw config get gateway.auth.token
+aws secretsmanager put-secret-value --secret-id openclaw/gateway-token --secret-string "<GATEWAY_TOKEN>"
 ```
 
 Install and start the gateway service
@@ -214,7 +228,7 @@ openclaw onboard --non-interactive --accept-risk \
   --custom-api-key "proxy-managed" \
   --custom-model-id "venice/zai-org-glm-5" \
   --custom-compatibility openai \
-  --skip-channels --skip-skills --skip-search --skip-daemon
+  --skip-channels --skip-skills --skip-daemon
 ```
 
 Configure image and fallback models
@@ -223,6 +237,38 @@ Configure image and fallback models
 openclaw models set-image venice/kimi-k2-5
 openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'
 ```
+
+Configure the gateway token by running `openclaw secrets configure` and following the prompts:
+
+1. **Provider setup** -- add a new provider:
+   - Name: `gateway-token`
+   - Source: `exec`
+   - Command: `/usr/local/bin/aws`
+   - Args: `secretsmanager get-secret-value --secret-id openclaw/gateway-token --query SecretString --output text`
+   - passEnv: `HOME`
+   - jsonOnly: `false`
+
+2. **Credential mapping** -- map `gateway.remote.token` to provider `gateway-token` with ID `value`
+
+3. **Apply** the plan
+
+> The gateway token is stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. It never touches disk on the Agent Server.
+
+Configure Brave Search by running `openclaw secrets configure` and following the prompts:
+
+1. **Provider setup** -- add a new provider:
+   - Name: `brave`
+   - Source: `exec`
+   - Command: `/usr/local/bin/aws`
+   - Args: `secretsmanager get-secret-value --secret-id openclaw/brave-api-key --query SecretString --output text`
+   - passEnv: `HOME`
+   - jsonOnly: `false`
+
+2. **Credential mapping** -- map `tools.web.search.apiKey` to provider `brave` with ID `value`
+
+3. **Apply** the plan
+
+> The Brave API key is stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. It never touches disk.
 
 Start the agent
 
@@ -236,3 +282,4 @@ Where:
 * `<CAPTCHA_TOKEN>` -- token from the captcha page
 * `<SMS_CODE>` -- verification code received via SMS
 * `<OWNER_PHONE_NUMBER>` -- your personal phone number (the only number allowed to message the bot)
+* `<GATEWAY_TOKEN>` -- auto-generated token from `openclaw config get gateway.auth.token` on the Gateway Server
