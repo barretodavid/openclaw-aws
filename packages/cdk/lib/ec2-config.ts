@@ -21,6 +21,14 @@ export const RPC_PROVIDERS: Record<string, { domain: string }> = {
   voyager:   { domain: 'data.voyager.online' },
 };
 
+export const WEB_PROVIDERS: Record<string, { domain: string }> = {
+  brave:      { domain: 'api.search.brave.com' },
+  gemini:     { domain: 'generativelanguage.googleapis.com' },
+  grok:       { domain: 'api.x.ai' },
+  kimi:       { domain: 'api.moonshot.cn' },
+  perplexity: { domain: 'api.perplexity.ai' },
+};
+
 // --- Ubuntu User Data ---
 
 /** Shared Ubuntu 24.04 user data: Node.js 22, AWS CLI v2, unattended-upgrades with auto-reboot. */
@@ -54,13 +62,24 @@ export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
 
 // --- Required Keys ---
 
-/** Validates that BRAVE_API_KEY is set in .env. Throws if missing or empty. */
-export function requireBraveApiKey(): string {
-  const key = process.env.BRAVE_API_KEY;
-  if (!key) {
-    throw new Error('BRAVE_API_KEY is required in .env -- the agent needs Brave Search for web access.');
+/** Validates that WEB_PROVIDER and WEB_API_KEY are set in .env. Returns the API key. */
+export function requireWebProvider(): string {
+  const provider = process.env.WEB_PROVIDER;
+  if (!provider) {
+    throw new Error(
+      `WEB_PROVIDER is required in .env. Set one of: ${Object.keys(WEB_PROVIDERS).join(', ')}`,
+    );
   }
-  return key;
+  if (!WEB_PROVIDERS[provider]) {
+    throw new Error(
+      `Unknown WEB_PROVIDER "${provider}". Must be one of: ${Object.keys(WEB_PROVIDERS).join(', ')}`,
+    );
+  }
+  const apiKey = process.env.WEB_API_KEY;
+  if (!apiKey) {
+    throw new Error('WEB_API_KEY is required in .env when WEB_PROVIDER is set.');
+  }
+  return apiKey;
 }
 
 /** Validates that LLM_PROVIDER and LLM_API_KEY are set in .env. Returns the API key. */

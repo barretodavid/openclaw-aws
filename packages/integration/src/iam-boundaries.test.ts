@@ -14,10 +14,10 @@ describe('IAM Boundary Verification', () => {
     expect(result.stdout.trim()).toBeTruthy();
   });
 
-  test('Agent Server can read Brave Search secret from Secrets Manager', async () => {
+  test('Agent Server can read Web Search secret from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.agentInstanceId,
-      `aws secretsmanager get-secret-value --secret-id openclaw/brave-api-key --region ${TEST_REGION} --query SecretString --output text`,
+      `aws secretsmanager get-secret-value --secret-id openclaw/web-api-key --region ${TEST_REGION} --query SecretString --output text`,
     );
 
     expect(result.stdout.trim()).toBeTruthy();

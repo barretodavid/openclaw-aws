@@ -15,7 +15,7 @@ graph LR
         AgentEC2 -->|"WebSocket<br/>(ws://gateway.vpc:18789)"| GatewayEC2
     end
     GatewayEC2 -->|"channel messages"| Channels["Signal / Telegram<br/>/ other channels"]
-    AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Brave, gateway token)"]
+    AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, gateway token)"]
     AgentEC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
     AgentEC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
     AgentEC2 <-->|"Sign(tx hash) / signature"| KMS["KMS<br/>(ECC_NIST_P256)"]
@@ -109,8 +109,10 @@ LLM_API_KEY=sk-...
 RPC_PROVIDER=alchemy
 RPC_API_KEY=abc123...
 
-# Web search (required)
-BRAVE_API_KEY=...
+# Web search provider (required)
+# Supported: brave, gemini, grok, kimi, perplexity
+WEB_PROVIDER=brave
+WEB_API_KEY=...
 ```
 
 Both `CDK_AZ_PROD` and `CDK_AZ_TEST` are required. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`). The prod and test AZs **must be in different regions** to avoid collisions on account-scoped resources (Secrets Manager, IAM roles).
@@ -240,7 +242,11 @@ Configure the LLM API key by running `openclaw secrets configure` and following 
    - passEnv: `HOME`
    - jsonOnly: `false`
 
-2. **Credential mapping** -- map the Venice API key credential to provider `llm` with ID `value`
+2. **Credential mapping** -- select "Continue" from the provider menu, then:
+   - Select `models.providers.venice.apiKey` from the credential list
+   - Source: `exec`
+   - Provider: `llm`
+   - Secret ID: `value`
 
 3. **Apply** the plan
 
@@ -256,27 +262,35 @@ Configure the gateway token by running `openclaw secrets configure` and followin
    - passEnv: `HOME`
    - jsonOnly: `false`
 
-2. **Credential mapping** -- map `gateway.remote.token` to provider `gateway-token` with ID `value`
+2. **Credential mapping** -- select "Continue" from the provider menu, then:
+   - Select `gateway.remote.token` from the credential list
+   - Source: `exec`
+   - Provider: `gateway-token`
+   - Secret ID: `value`
 
 3. **Apply** the plan
 
 > The gateway token is stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. It never touches disk on the Agent Server.
 
-Configure Brave Search by running `openclaw secrets configure` and following the prompts:
+Configure web search by running `openclaw secrets configure` and following the prompts:
 
 1. **Provider setup** -- add a new provider:
-   - Name: `brave`
+   - Name: `web`
    - Source: `exec`
    - Command: `/usr/local/bin/aws`
-   - Args: `secretsmanager get-secret-value --secret-id openclaw/brave-api-key --query SecretString --output text`
+   - Args: `secretsmanager get-secret-value --secret-id openclaw/web-api-key --query SecretString --output text`
    - passEnv: `HOME`
    - jsonOnly: `false`
 
-2. **Credential mapping** -- map `tools.web.search.apiKey` to provider `brave` with ID `value`
+2. **Credential mapping** -- select "Continue" from the provider menu, then:
+   - Select `tools.web.search.apiKey` from the credential list (for Brave; other providers use `tools.web.search.<provider>.apiKey`)
+   - Source: `exec`
+   - Provider: `web`
+   - Secret ID: `value`
 
 3. **Apply** the plan
 
-> The Brave API key is stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. It never touches disk.
+> The web search API key is stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. It never touches disk.
 
 Start the agent
 

@@ -9,7 +9,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
-import { resolveAgentMachine, ubuntuBaseUserData, requireBraveApiKey, requireLlmProvider, resolveRpcProvider } from './ec2-config';
+import { resolveAgentMachine, ubuntuBaseUserData, requireWebProvider, requireLlmProvider, resolveRpcProvider } from './ec2-config';
 
 const GATEWAY_PORT = 18789;
 
@@ -129,14 +129,14 @@ export class OpenclawStack extends cdk.Stack {
       rpcSecret.grantRead(agentRole);
     }
 
-    // --- Brave Search Secret (Agent Server only) ---
-    const braveApiKey = requireBraveApiKey();
-    const braveSecret = new secretsmanager.Secret(this, 'BraveApiKeySecret', {
-      secretName: 'openclaw/brave-api-key',
-      description: 'Brave Search API key - only the Agent Server EC2 can read this',
-      secretStringValue: cdk.SecretValue.unsafePlainText(braveApiKey),
+    // --- Web Search Secret (Agent Server only) ---
+    const webApiKey = requireWebProvider();
+    const webSecret = new secretsmanager.Secret(this, 'WebApiKeySecret', {
+      secretName: 'openclaw/web-api-key',
+      description: 'Web search provider API key - only the Agent Server EC2 can read this',
+      secretStringValue: cdk.SecretValue.unsafePlainText(webApiKey),
     });
-    braveSecret.grantRead(agentRole);
+    webSecret.grantRead(agentRole);
 
     // --- Gateway Token Secret (Agent Server reads, operator populates post-deploy) ---
     const gatewayTokenSecret = new secretsmanager.Secret(this, 'GatewayTokenSecret', {

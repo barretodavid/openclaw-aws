@@ -16,7 +16,7 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 - **WHEN** its IAM role is evaluated
 - **THEN** it SHALL have KMS permissions (CreateKey, Sign, GetPublicKey, DescribeKey) restricted to wallet-tagged keys
 - **AND** it SHALL have tag:GetResources for key discovery
-- **AND** it SHALL have Secrets Manager read access scoped to the `openclaw/brave-api-key`, `openclaw/gateway-token`, `openclaw/llm-api-key`, and `openclaw/rpc-api-key` secrets only
+- **AND** it SHALL have Secrets Manager read access scoped to the `openclaw/web-api-key`, `openclaw/gateway-token`, `openclaw/llm-api-key`, and `openclaw/rpc-api-key` secrets only
 - **AND** it SHALL have SSM Session Manager access
 
 #### Scenario: Gateway role permissions

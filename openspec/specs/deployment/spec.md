@@ -6,28 +6,38 @@ The infrastructure SHALL be deployable and destroyable via CDK with .env-driven 
 
 ## Requirements
 
-### Requirement: Brave Search API Key
+### Requirement: Web Search API Key
 
-The Brave Search API key SHALL be stored in Secrets Manager and accessible only to the Agent Server.
+The web search API key SHALL be stored in Secrets Manager and accessible only to the Agent Server. The provider SHALL be configurable via `WEB_PROVIDER` in `.env`.
 
-#### Scenario: Required API key in .env
+#### Scenario: Required provider and API key in .env
 
-- **GIVEN** `BRAVE_API_KEY` is not set or empty in `.env`
-- **WHEN** CDK synth is executed
-- **THEN** it SHALL fail with an error indicating that `BRAVE_API_KEY` is required
+- **WHEN** `WEB_PROVIDER` is not set or empty in `.env`
+- **THEN** CDK synth SHALL fail with an error indicating that `WEB_PROVIDER` is required and listing the supported providers (brave, gemini, grok, kimi, perplexity)
+
+#### Scenario: Unknown provider
+
+- **WHEN** `WEB_PROVIDER` is set to an unrecognized value
+- **THEN** CDK synth SHALL fail with an error indicating the provider is unknown and listing the supported providers
+
+#### Scenario: Missing API key
+
+- **WHEN** `WEB_PROVIDER` is set but `WEB_API_KEY` is not set or empty
+- **THEN** CDK synth SHALL fail with an error indicating that `WEB_API_KEY` is required when `WEB_PROVIDER` is set
 
 #### Scenario: Secret creation
 
-- **GIVEN** `BRAVE_API_KEY` is set in `.env`
+- **GIVEN** `WEB_PROVIDER` and `WEB_API_KEY` are set in `.env`
 - **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `openclaw/brave-api-key` SHALL be created
+- **THEN** a Secrets Manager secret named `openclaw/web-api-key` SHALL be created
 - **AND** only the Agent Server IAM role SHALL have read access to this secret
 - **AND** the Gateway Server role SHALL NOT have access to this secret
 
 #### Scenario: .env.example entry
 
 - **GIVEN** the `.env.example` file
-- **THEN** it SHALL include a `BRAVE_API_KEY` entry
+- **THEN** it SHALL include a `WEB_PROVIDER` entry with a comment listing supported providers (brave, gemini, grok, kimi, perplexity)
+- **AND** it SHALL include a `WEB_API_KEY` entry
 
 ### Requirement: LLM API Key Required
 
@@ -67,7 +77,7 @@ Deployment SHALL be controlled by .env file entries. Region SHALL always be deri
 - **GIVEN** the `.env` file
 - **THEN** it SHALL use `LLM_PROVIDER` and `LLM_API_KEY` for the LLM provider configuration
 - **AND** it SHALL use `RPC_PROVIDER` and `RPC_API_KEY` for the RPC provider configuration
-- **AND** it SHALL use `BRAVE_API_KEY` for the Brave Search API key
+- **AND** it SHALL use `WEB_PROVIDER` and `WEB_API_KEY` for the web search provider configuration
 
 #### Scenario: CDK availability zone input
 
@@ -356,7 +366,7 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 
 ### Requirement: Post-Deployment Setup Documentation
 
-The root README.md SHALL include an "OpenClaw Setup" section at the end documenting the CLI-only steps to configure and start OpenClaw after deployment. The section SHALL use Venice.ai as the concrete LLM provider. Both the Gateway Server and Agent Server use the `openclaw onboard` wizard.
+The root README.md SHALL include an "OpenClaw Setup" section at the end documenting the CLI-only steps to configure and start OpenClaw after deployment. The section SHALL use Venice.ai as the concrete LLM provider and Brave as the concrete web search provider. Both the Gateway Server and Agent Server use the `openclaw onboard` wizard.
 
 #### Scenario: Gateway Server login
 
@@ -405,7 +415,8 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 
 - **WHEN** a user configures the gateway token on the Agent Server
 - **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider named `gateway-token` with source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/gateway-token --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
-- **AND** it SHALL instruct mapping `gateway.remote.token` to provider `gateway-token` with ID `value`
+- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
+- **AND** it SHALL instruct selecting `gateway.remote.token` from the credential list, with source `exec`, provider `gateway-token`, and secret ID `value`
 
 #### Scenario: Agent Server model configuration
 
@@ -413,12 +424,20 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 - **THEN** it SHALL instruct setting the image model with `openclaw models set-image venice/kimi-k2-5`
 - **AND** it SHALL instruct setting the fallback model with `openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'`
 
-#### Scenario: Agent Server Brave Search configuration
+#### Scenario: Agent Server web search configuration
 
-- **WHEN** a user configures Brave Search on the Agent Server
+- **WHEN** a user configures web search on the Agent Server
 - **THEN** it SHALL document running `openclaw secrets configure` to set up the exec SecretRef provider
-- **AND** it SHALL provide step-by-step wizard guidance: provider name `brave`, source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/brave-api-key --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
-- **AND** it SHALL instruct mapping `tools.web.search.apiKey` to provider `brave` with ID `value`
+- **AND** it SHALL provide step-by-step wizard guidance: provider name `web`, source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/web-api-key --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
+- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
+- **AND** it SHALL instruct selecting the appropriate credential field from the credential list (`tools.web.search.apiKey` for brave, `tools.web.search.<provider>.apiKey` for others), with source `exec`, provider `web`, and secret ID `value`
+
+#### Scenario: Agent Server LLM secret configuration
+
+- **WHEN** a user configures the LLM secret on the Agent Server
+- **THEN** it SHALL document running `openclaw secrets configure` to set up the exec SecretRef provider
+- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
+- **AND** it SHALL instruct selecting `models.providers.venice.apiKey` from the credential list, with source `exec`, provider `llm`, and secret ID `value`
 
 #### Scenario: Agent Server start
 
@@ -431,6 +450,7 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 - **THEN** the documentation SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`, `<GATEWAY_TOKEN>`)
 - **AND** it SHALL define each placeholder with a brief description
 - **AND** it SHALL NOT use placeholders for LLM provider, model, or API key values (these SHALL use concrete Venice values)
+- **AND** it SHALL NOT use placeholders for web search provider values (these SHALL use concrete Brave values)
 
 ### Requirement: Gateway Token Secret
 
