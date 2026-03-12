@@ -159,3 +159,80 @@ aws ssm start-session --target <ProxyServerInstanceId> --document-name ubuntu
 ```bash
 npx cdk destroy
 ```
+
+## OpenClaw Setup
+
+After deployment, the proxy server is already running. The gateway and agent servers need manual configuration.
+
+### Gateway Server
+
+Login to the gateway server
+
+```bash
+pnpm run login:gateway
+```
+
+Open this [link](https://signalcaptchas.org/registration/generate.html) in your browser to resolve Signal's CAPTCHA, copy the token and configure Signal
+
+```bash
+signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"
+signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>
+```
+
+Configure the communication channel with the agent
+
+```bash
+openclaw channels add --channel signal --account <PHONE_NUMBER>
+openclaw config set channels.signal.dmPolicy allowlist
+openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'
+openclaw config set session.dmScope per-channel-peer
+```
+
+Install and start the gateway service
+
+```bash
+openclaw gateway install
+openclaw gateway start
+systemctl --user enable openclaw-gateway.service
+```
+
+### Agent Server
+
+Login to the agent server
+
+```bash
+pnpm run login:agent
+```
+
+Configure OpenClaw with Venice.ai
+
+```bash
+openclaw onboard --non-interactive --accept-risk \
+  --mode remote --remote-url "ws://gateway.vpc:18789" \
+  --auth-choice custom-api-key \
+  --custom-base-url "http://venice.proxy.vpc:8080" \
+  --custom-api-key "proxy-managed" \
+  --custom-model-id "venice/zai-org-glm-5" \
+  --custom-compatibility openai \
+  --skip-channels --skip-skills --skip-search --skip-daemon
+```
+
+Configure image and fallback models
+
+```bash
+openclaw models set-image venice/kimi-k2-5
+openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'
+```
+
+Start the agent
+
+```bash
+openclaw agent
+```
+
+Where:
+
+* `<PHONE_NUMBER>` -- dedicated bot phone number in E.164 format (e.g. `+33612345678`)
+* `<CAPTCHA_TOKEN>` -- token from the captcha page
+* `<SMS_CODE>` -- verification code received via SMS
+* `<OWNER_PHONE_NUMBER>` -- your personal phone number (the only number allowed to message the bot)

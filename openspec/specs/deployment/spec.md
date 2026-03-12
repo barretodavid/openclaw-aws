@@ -326,3 +326,67 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 
 - **WHEN** `login.ts` is invoked and the target stack does not exist
 - **THEN** it SHALL exit with an error indicating the stack was not found
+
+### Requirement: Post-Deployment Setup Documentation
+
+The root README.md SHALL include an "OpenClaw Setup" section at the end documenting the CLI-only steps to configure and start OpenClaw after deployment. The section SHALL use Venice.ai as the concrete LLM provider and offer two setup paths: wizard (`openclaw onboard`) and manual (`openclaw config set`).
+
+#### Scenario: Gateway Server setup via wizard (Option A)
+
+- **WHEN** a user follows the wizard path for the Gateway Server
+- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --flow quickstart --skip-channels --skip-skills --skip-search --skip-daemon` on the Gateway Server
+- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
+
+#### Scenario: Gateway Server setup via manual commands (Option B)
+
+- **WHEN** a user follows the manual path for the Gateway Server
+- **THEN** the documentation SHALL instruct running `openclaw config set session.dmScope per-channel-peer` on the Gateway Server
+
+#### Scenario: Gateway Server Signal registration (both paths)
+
+- **WHEN** a user configures Signal on the Gateway Server
+- **THEN** it SHALL document obtaining a captcha token from a laptop browser
+- **AND** it SHALL document registering a dedicated phone number with `signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"`
+- **AND** it SHALL document verifying the registration with `signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>`
+- **AND** it SHALL document adding the Signal channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
+- **AND** it SHALL document configuring the DM policy to allowlist with `openclaw config set channels.signal.dmPolicy allowlist`
+- **AND** it SHALL document adding the owner's phone number to the allowlist with `openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
+
+#### Scenario: Gateway Server service management (both paths)
+
+- **WHEN** a user starts the gateway service
+- **THEN** it SHALL document installing and starting the gateway service with `openclaw gateway install` and `openclaw gateway start`
+- **AND** it SHALL document enabling the gateway service on boot with `systemctl --user enable openclaw-gateway.service`
+
+#### Scenario: Agent Server setup via wizard (Option A)
+
+- **WHEN** a user follows the wizard path for the Agent Server
+- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --mode remote --remote-url "ws://gateway.vpc:18789" --auth-choice custom-api-key --custom-base-url "http://venice.proxy.vpc:8080" --custom-api-key "proxy-managed" --custom-model-id "venice/zai-org-glm-5" --custom-compatibility openai --skip-channels --skip-skills --skip-search --skip-daemon` on the Agent Server
+- **AND** it SHALL instruct setting the image model with `openclaw models set-image venice/kimi-k2-5`
+- **AND** it SHALL instruct setting the fallback model with `openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'`
+
+#### Scenario: Agent Server setup via manual commands (Option B)
+
+- **WHEN** a user follows the manual path for the Agent Server
+- **THEN** the documentation SHALL instruct configuring the Venice provider with `openclaw config set models.providers.venice.baseUrl "http://venice.proxy.vpc:8080"` and `openclaw config set models.providers.venice.apiKey "proxy-managed"`
+- **AND** it SHALL instruct configuring the remote gateway with `openclaw config set gateway.mode remote` and `openclaw config set gateway.remote.url "ws://gateway.vpc:18789"`
+- **AND** it SHALL instruct setting the primary model with `openclaw models set venice/zai-org-glm-5`
+- **AND** it SHALL instruct setting the image model with `openclaw models set-image venice/kimi-k2-5`
+- **AND** it SHALL instruct setting the fallback model with `openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'`
+
+#### Scenario: Agent Server start (both paths)
+
+- **WHEN** a user starts the agent
+- **THEN** it SHALL document starting the agent with `openclaw agent`
+
+#### Scenario: Embeddings configuration
+
+- **WHEN** a user reads the Agent Server setup instructions
+- **THEN** the documentation SHALL note that memory search uses local embeddings by default and requires no configuration
+
+#### Scenario: Variable placeholders
+
+- **WHEN** a command contains user-specific values
+- **THEN** the documentation SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`)
+- **AND** it SHALL define each placeholder with a brief description
+- **AND** it SHALL NOT use placeholders for LLM provider, model, or API key values (these SHALL use concrete Venice values)
