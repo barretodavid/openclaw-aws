@@ -169,13 +169,6 @@ Login to the gateway server
 pnpm run login:gateway
 ```
 
-Open this [link](https://signalcaptchas.org/registration/generate.html) in your browser to resolve Signal's CAPTCHA, copy the token and configure Signal
-
-```bash
-signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"
-signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>
-```
-
 Configure the gateway with token auth and LAN binding
 
 ```bash
@@ -183,7 +176,57 @@ openclaw onboard --non-interactive --accept-risk \
   --flow quickstart --gateway-bind lan --skip-daemon
 ```
 
-Configure the communication channel with the agent
+#### Choose a messaging channel
+
+Your agent needs a messaging channel so you can talk to it. OpenClaw supports both Telegram and Signal. Choose one:
+
+| | Telegram (default) | Signal |
+|---|---|---|
+| **Setup time** | ~2 minutes | ~10-15 minutes |
+| **Extra phone number required** | No | Yes (dedicated number) |
+| **End-to-end encryption** | No -- Telegram servers can see bot messages | Yes -- messages are E2E encrypted |
+| **What the provider sees** | All messages between you and the bot | Nothing (encrypted end-to-end) |
+| **Best for** | Quick setup, general use | Privacy-sensitive use (wallet ops, financial data) |
+
+**Recommendation:** Use Telegram to get started quickly. Choose Signal if your agent handles sensitive data and you need E2E encryption.
+
+#### Option A: Telegram (recommended)
+
+Create a Telegram bot:
+
+1. Open Telegram on your phone or desktop
+2. Search for `@BotFather` (verified Telegram system account)
+3. Send `/newbot`
+4. Follow the prompts -- choose a display name and a username (must end in `bot`)
+5. BotFather replies with your bot token (a string like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
+6. Copy the token
+
+Find your Telegram user ID (needed for the allowlist):
+
+1. Search for `@userinfobot` in Telegram and start a chat
+2. It replies with your numeric user ID (e.g., `123456789`)
+
+Configure the channel:
+
+```bash
+openclaw channels add --channel telegram --token <BOT_TOKEN>
+openclaw config set channels.telegram.dmPolicy allowlist
+openclaw config set channels.telegram.allowFrom '["<TELEGRAM_USER_ID>"]'
+openclaw config set session.dmScope per-channel-peer
+```
+
+#### Option B: Signal (E2E encrypted alternative)
+
+Signal requires a **dedicated phone number** -- you cannot reuse your personal Signal number. You will need a spare SIM card or VoIP number.
+
+Open this [link](https://signalcaptchas.org/registration/generate.html) in your browser to resolve Signal's CAPTCHA, copy the token and register:
+
+```bash
+signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"
+signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>
+```
+
+Configure the channel:
 
 ```bash
 openclaw channels add --channel signal --account <PHONE_NUMBER>
@@ -191,6 +234,8 @@ openclaw config set channels.signal.dmPolicy allowlist
 openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'
 openclaw config set session.dmScope per-channel-peer
 ```
+
+#### Gateway token and service
 
 Copy the auto-generated gateway token and store it in Secrets Manager so the Agent Server can authenticate
 
@@ -300,8 +345,10 @@ openclaw agent
 
 Where:
 
-* `<PHONE_NUMBER>` -- dedicated bot phone number in E.164 format (e.g. `+33612345678`)
-* `<CAPTCHA_TOKEN>` -- token from the captcha page
-* `<SMS_CODE>` -- verification code received via SMS
-* `<OWNER_PHONE_NUMBER>` -- your personal phone number (the only number allowed to message the bot)
+* `<BOT_TOKEN>` -- Telegram bot token from @BotFather (e.g. `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
+* `<TELEGRAM_USER_ID>` -- your Telegram numeric user ID from @userinfobot (e.g. `123456789`)
+* `<PHONE_NUMBER>` -- dedicated bot phone number in E.164 format (e.g. `+33612345678`) (Signal only)
+* `<CAPTCHA_TOKEN>` -- token from the captcha page (Signal only)
+* `<SMS_CODE>` -- verification code received via SMS (Signal only)
+* `<OWNER_PHONE_NUMBER>` -- your personal phone number (the only number allowed to message the bot) (Signal only)
 * `<GATEWAY_TOKEN>` -- auto-generated token from `openclaw config get gateway.auth.token` on the Gateway Server

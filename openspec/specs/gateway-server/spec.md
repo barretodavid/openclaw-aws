@@ -17,6 +17,12 @@ The Gateway SHALL be provisioned with tools for messaging channel integrations a
 - **AND** it SHALL install Node.js 22 and unattended-upgrades
 - **AND** OpenClaw SHALL be installed globally via npm as the ubuntu user (`sudo -u ubuntu npm install -g openclaw`)
 
+#### Scenario: Telegram support
+
+- **GIVEN** the Gateway instance
+- **THEN** Telegram SHALL require no additional binary dependencies beyond Node.js and OpenClaw
+- **AND** Telegram channel configuration SHALL be performed post-deployment via the OpenClaw CLI
+
 #### Scenario: No unnecessary software
 
 - **GIVEN** the Gateway instance
