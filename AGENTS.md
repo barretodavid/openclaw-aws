@@ -17,11 +17,15 @@ Secure AWS infrastructure for an OpenClaw agent, defined using AWS CDK in TypeSc
 
 * `pnpm run typecheck` — type-check TypeScript across all packages
 * `pnpm run test` — run unit tests across all packages
-* `pnpm run test:integration` — run integration tests (requires deployed stack)
-* `pnpm run ci` — deploy test stack, run integration tests, tear down
+* `pnpm run ci` — deploy ephemeral stack, run integration tests, tear down
 * `pnpm run synth` — synthesize CloudFormation template
-* `pnpm run deploy:prod` / `deploy:test` — deploy to AWS (prod or test)
-* `pnpm run destroy:prod` / `destroy:test` — tear down the stack (prod or test)
+* `pnpm run deploy` — deploy the agent stack to AWS (reads `AGENT_NAME` and `CDK_AZ` from `.env`)
+* `pnpm run destroy` — tear down the agent stack
+* `pnpm run integration:deploy` — deploy the persistent test stack (`AGENT_NAME=test`)
+* `pnpm run integration:run` — run integration tests against the test stack
+* `pnpm run integration:destroy` — tear down the test stack
+* `pnpm run integration:login:agent` — SSM session to test stack Agent Server
+* `pnpm run integration:login:gateway` — SSM session to test stack Gateway Server
 
 ## Project Structure
 

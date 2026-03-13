@@ -1,5 +1,6 @@
 import { readContext } from './context';
 import { runCommand } from './ssm-helper';
+import { AGENT_NAME } from './config';
 
 const ctx = readContext();
 
@@ -9,7 +10,7 @@ describe('Network Connectivity Verification', () => {
     // but nothing is listening. Timeout means SG blocked it.
     const result = await runCommand(
       ctx.agentInstanceId,
-      'timeout 5 bash -c "echo > /dev/tcp/gateway.vpc/18789" 2>&1; echo "EXIT:$?"',
+      `timeout 5 bash -c "echo > /dev/tcp/gateway.${AGENT_NAME}.vpc/18789" 2>&1; echo "EXIT:$?"`,
     );
 
     const output = result.stdout + result.stderr;

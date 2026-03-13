@@ -2,11 +2,14 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawStack } from '../lib/openclaw-stack';
-import { LLM_PROVIDERS, RPC_PROVIDERS, WEB_SEARCH_PROVIDERS } from '../lib/ec2-config';
+import { LLM_PROVIDERS, RPC_PROVIDERS, WEB_SEARCH_PROVIDERS, resolveAgentName } from '../lib/ec2-config';
 import { resolveRegionConfig } from '../lib/region-config';
+
+const TEST_AGENT_NAME = 'testagent';
 
 /** Default config values for tests (mirrors production defaults in bin/openclaw.ts). */
 const defaults = {
+  agentName: TEST_AGENT_NAME,
   availabilityZone: 'us-east-1a',
   agentInstanceType: new ec2.InstanceType('t3a.large'),
   gatewayServerInstanceType: new ec2.InstanceType('t3a.small'),
@@ -178,7 +181,7 @@ describe('Security Boundaries', () => {
             Effect: 'Allow',
             Condition: {
               StringEquals: {
-                'aws:RequestTag/openclaw': 'wallet',
+                [`aws:RequestTag/${TEST_AGENT_NAME}`]: 'wallet',
                 'kms:KeySpec': 'ECC_NIST_P256',
                 'kms:KeyUsage': 'SIGN_VERIFY',
               },
@@ -198,7 +201,7 @@ describe('Security Boundaries', () => {
             Effect: 'Allow',
             Condition: {
               StringEquals: {
-                'aws:ResourceTag/openclaw': 'wallet',
+                [`aws:ResourceTag/${TEST_AGENT_NAME}`]: 'wallet',
               },
             },
           }),
@@ -323,15 +326,15 @@ describe('Resource Configuration', () => {
     expect(gatewayServerHasEnvVar).toBe(true);
   });
 
-  test('Private hosted zone exists with zone name vpc', () => {
+  test('Private hosted zone exists with agent-scoped zone name', () => {
     template.hasResourceProperties('AWS::Route53::HostedZone', {
-      Name: 'vpc.',
+      Name: `${TEST_AGENT_NAME}.vpc.`,
     });
   });
 
-  test('A record for gateway.vpc points to gateway server instance', () => {
+  test('A record for gateway points to gateway server instance', () => {
     template.hasResourceProperties('AWS::Route53::RecordSet', {
-      Name: 'gateway.vpc.',
+      Name: `gateway.${TEST_AGENT_NAME}.vpc.`,
       Type: 'A',
     });
   });
@@ -496,7 +499,7 @@ describe('Cross-Resource Relationships', () => {
         (record.Properties?.ResourceRecords as { 'Fn::GetAtt': string[] }[])?.[0]
       )?.['Fn::GetAtt']?.[0];
 
-      if (name === 'gateway.vpc.') {
+      if (name === `gateway.${TEST_AGENT_NAME}.vpc.`) {
         expect(targetRef).toBe(gatewayServerInstanceId);
       }
 
@@ -511,7 +514,7 @@ describe('Cross-Resource Relationships', () => {
 describe('Web Search Secret', () => {
   test('Web API key secret exists with correct name', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: 'openclaw/web-search-api-key',
+      Name: `${TEST_AGENT_NAME}/web-search-api-key`,
     });
   });
 
@@ -551,7 +554,7 @@ describe('Web Search Secret', () => {
 describe('Gateway Token Secret', () => {
   test('Gateway token secret exists with correct name and description', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: 'openclaw/gateway-token',
+      Name: `${TEST_AGENT_NAME}/gateway-token`,
       Description: Match.stringLikeRegexp('Gateway authentication token'),
     });
   });
@@ -590,7 +593,7 @@ describe('Gateway Token Secret', () => {
 describe('LLM API Key Secret', () => {
   test('LLM API key secret exists with correct name', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: 'openclaw/llm-api-key',
+      Name: `${TEST_AGENT_NAME}/llm-api-key`,
     });
   });
 
@@ -622,7 +625,7 @@ describe('LLM API Key Secret', () => {
 describe('RPC API Key Secret', () => {
   test('RPC API key secret exists with correct name when configured', () => {
     template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: 'openclaw/rpc-api-key',
+      Name: `${TEST_AGENT_NAME}/rpc-api-key`,
     });
   });
 
@@ -650,7 +653,7 @@ describe('Telegram Bot Token Secret', () => {
       const tmpl = createStackWithConfig();
 
       tmpl.hasResourceProperties('AWS::SecretsManager::Secret', {
-        Name: 'openclaw/telegram-token',
+        Name: `${TEST_AGENT_NAME}/telegram-token`,
         Description: Match.stringLikeRegexp('Telegram bot token'),
       });
 
@@ -706,7 +709,7 @@ describe('Telegram Bot Token Secret', () => {
     // No telegram secret
     const secrets = tmpl.findResources('AWS::SecretsManager::Secret');
     const telegramSecrets = Object.values(secrets).filter(
-      (s) => (s.Properties?.Name as string) === 'openclaw/telegram-token',
+      (s) => (s.Properties?.Name as string) === `${TEST_AGENT_NAME}/telegram-token`,
     );
     expect(telegramSecrets).toHaveLength(0);
 
@@ -909,17 +912,120 @@ describe('resolveRegionConfig', () => {
     expect(result).toEqual({ region: 'us-west-2', availabilityZone: 'us-west-2b' });
   });
 
-  test('CDK_AZ_PROD fallback returns that AZ and derived region', () => {
-    const result = resolveRegionConfig({ CDK_AZ_PROD: 'us-east-1a' });
-    expect(result).toEqual({ region: 'us-east-1', availabilityZone: 'us-east-1a' });
-  });
-
-  test('CDK_AZ takes precedence over CDK_AZ_PROD', () => {
-    const result = resolveRegionConfig({ CDK_AZ: 'us-west-2b', CDK_AZ_PROD: 'us-east-1a' });
-    expect(result).toEqual({ region: 'us-west-2', availabilityZone: 'us-west-2b' });
-  });
-
-  test('missing CDK_AZ and CDK_AZ_PROD throws an error', () => {
+  test('missing CDK_AZ throws an error', () => {
     expect(() => resolveRegionConfig({})).toThrow(/CDK_AZ is not set/);
+  });
+});
+
+// --- Agent Name Validation Tests ---
+
+describe('resolveAgentName', () => {
+  const savedAgentName = process.env.AGENT_NAME;
+
+  afterEach(() => {
+    if (savedAgentName !== undefined) process.env.AGENT_NAME = savedAgentName;
+    else delete process.env.AGENT_NAME;
+  });
+
+  test('valid agent name is accepted', () => {
+    process.env.AGENT_NAME = 'alice';
+    expect(resolveAgentName()).toBe('alice');
+  });
+
+  test('agent name with hyphens is accepted', () => {
+    process.env.AGENT_NAME = 'ci-12345';
+    expect(resolveAgentName()).toBe('ci-12345');
+  });
+
+  test('missing AGENT_NAME throws an error', () => {
+    delete process.env.AGENT_NAME;
+    expect(() => resolveAgentName()).toThrow(/AGENT_NAME is required/);
+  });
+
+  test('agent name starting with number is rejected', () => {
+    process.env.AGENT_NAME = '123abc';
+    expect(() => resolveAgentName()).toThrow(/Invalid AGENT_NAME/);
+  });
+
+  test('agent name with uppercase is rejected', () => {
+    process.env.AGENT_NAME = 'Alice';
+    expect(() => resolveAgentName()).toThrow(/Invalid AGENT_NAME/);
+  });
+
+  test('agent name over 20 chars is rejected', () => {
+    process.env.AGENT_NAME = 'a'.repeat(21);
+    expect(() => resolveAgentName()).toThrow(/Invalid AGENT_NAME/);
+  });
+
+  test('agent name with underscores is rejected', () => {
+    process.env.AGENT_NAME = 'my_agent';
+    expect(() => resolveAgentName()).toThrow(/Invalid AGENT_NAME/);
+  });
+});
+
+// --- Agent Name Scoping Tests ---
+
+describe('Agent Name Scoping', () => {
+  test('SSM document name matches agent name', () => {
+    const tmpl = createStackWithConfig();
+    tmpl.hasResourceProperties('AWS::SSM::Document', {
+      Name: TEST_AGENT_NAME,
+    });
+  });
+
+  test('secret names are prefixed with agent name', () => {
+    const tmpl = createStackWithConfig();
+    tmpl.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: `${TEST_AGENT_NAME}/llm-api-key`,
+    });
+    tmpl.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: `${TEST_AGENT_NAME}/web-search-api-key`,
+    });
+    tmpl.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Name: `${TEST_AGENT_NAME}/gateway-token`,
+    });
+  });
+
+  test('KMS CreateKey condition uses agent name as tag key', () => {
+    const tmpl = createStackWithConfig();
+    tmpl.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'kms:CreateKey',
+            Condition: {
+              StringEquals: Match.objectLike({
+                [`aws:RequestTag/${TEST_AGENT_NAME}`]: 'wallet',
+              }),
+            },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  test('KMS Sign/GetPublicKey/DescribeKey condition uses agent name as tag key', () => {
+    const tmpl = createStackWithConfig();
+    tmpl.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith(['kms:Sign']),
+            Condition: {
+              StringEquals: Match.objectLike({
+                [`aws:ResourceTag/${TEST_AGENT_NAME}`]: 'wallet',
+              }),
+            },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  test('PHZ zone name includes agent name', () => {
+    const tmpl = createStackWithConfig();
+    tmpl.hasResourceProperties('AWS::Route53::HostedZone', {
+      Name: `${TEST_AGENT_NAME}.vpc.`,
+    });
   });
 });

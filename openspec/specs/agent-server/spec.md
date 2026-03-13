@@ -39,12 +39,12 @@ The Agent SHALL create and use KMS-backed wallet keys for Starknet transaction s
 
 - **WHEN** the Agent creates a wallet key
 - **THEN** it SHALL use KMS CreateKey with ECC_NIST_P256 and SIGN_VERIFY
-- **AND** the key SHALL be tagged with openclaw:wallet
+- **AND** the key SHALL be tagged with `${agentName}:wallet` (tag key is the agent name, tag value is `wallet`)
 
 #### Scenario: Wallet key discovery
 
 - **WHEN** the Agent needs to find existing wallet keys
-- **THEN** it SHALL use the Resource Groups Tagging API (tag:GetResources)
+- **THEN** it SHALL use the Resource Groups Tagging API (tag:GetResources) filtering by tag key `${agentName}` with value `wallet`
 
 ### Requirement: Internal Connectivity
 
@@ -53,11 +53,11 @@ The Agent Server SHALL connect to the Gateway Server via WebSocket and reach LLM
 #### Scenario: Gateway Server connection
 
 - **WHEN** the Agent connects to the Gateway Server
-- **THEN** it SHALL use ws://gateway.vpc:18789
+- **THEN** it SHALL use `ws://gateway.${agentName}.vpc:18789`
 - **AND** the OPENCLAW_ALLOW_INSECURE_PRIVATE_WS environment variable SHALL be set
 
 #### Scenario: LLM and RPC API access
 
 - **WHEN** the Agent makes an LLM or RPC API request
 - **THEN** it SHALL connect directly to the provider via HTTPS
-- **AND** it SHALL retrieve API keys from Secrets Manager (openclaw/llm-api-key, openclaw/rpc-api-key)
+- **AND** it SHALL retrieve API keys from Secrets Manager (`${agentName}/llm-api-key`, `${agentName}/rpc-api-key`)

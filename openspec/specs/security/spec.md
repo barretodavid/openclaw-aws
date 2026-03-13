@@ -14,9 +14,9 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 
 - **GIVEN** the Agent EC2 instance
 - **WHEN** its IAM role is evaluated
-- **THEN** it SHALL have KMS permissions (CreateKey, Sign, GetPublicKey, DescribeKey) restricted to wallet-tagged keys
+- **THEN** it SHALL have KMS permissions (CreateKey, Sign, GetPublicKey, DescribeKey) restricted to keys tagged `${agentName}:wallet`
 - **AND** it SHALL have tag:GetResources for key discovery
-- **AND** it SHALL have Secrets Manager read access scoped to the `openclaw/web-search-api-key`, `openclaw/gateway-token`, `openclaw/llm-api-key`, and `openclaw/rpc-api-key` secrets only
+- **AND** it SHALL have Secrets Manager read access scoped to the `${agentName}/web-search-api-key`, `${agentName}/gateway-token`, `${agentName}/llm-api-key`, and `${agentName}/rpc-api-key` secrets only
 - **AND** it SHALL have SSM Session Manager access
 
 #### Scenario: Gateway role permissions
@@ -25,7 +25,7 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 - **WHEN** its IAM role is evaluated
 - **THEN** it SHALL have SSM Session Manager access
 - **AND** it SHALL NOT have KMS permissions
-- **AND** when `TELEGRAM_BOT_TOKEN` is set in `.env`, it SHALL have Secrets Manager read access scoped to the `openclaw/telegram-token` secret only
+- **AND** when `TELEGRAM_BOT_TOKEN` is set in `.env`, it SHALL have Secrets Manager read access scoped to the `${agentName}/telegram-token` secret only
 - **AND** when `TELEGRAM_BOT_TOKEN` is not set in `.env`, it SHALL NOT have any Secrets Manager permissions
 
 ### Requirement: No Public Inbound Traffic
@@ -56,7 +56,7 @@ The Agent SHALL only create wallet keys with specific cryptographic parameters.
 - **WHEN** the Agent creates a KMS key
 - **THEN** the key MUST use ECC_NIST_P256 key spec
 - **AND** the key MUST use SIGN_VERIFY key usage
-- **AND** the key MUST be tagged with openclaw:wallet
+- **AND** the key MUST be tagged with `${agentName}:wallet` (tag key is the agent name, tag value is `wallet`)
 - **AND** the private key SHALL never leave the HSM
 
 ### Requirement: Network Segmentation

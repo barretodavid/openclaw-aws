@@ -4,9 +4,14 @@ import { config } from 'dotenv';
 
 config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 
-const az = process.env.CDK_AZ_TEST;
+const agentName = process.env.AGENT_NAME;
+if (!agentName) {
+  throw new Error('AGENT_NAME is not set in .env');
+}
+
+const az = process.env.CDK_AZ;
 if (!az) {
-  throw new Error('CDK_AZ_TEST is not set in .env');
+  throw new Error('CDK_AZ is not set in .env');
 }
 
 const region = az.slice(0, -1);
@@ -18,7 +23,7 @@ const envVars = {
   CDK_DEFAULT_REGION: region,
 };
 
-console.log(`Destroying OpenclawStack (test) in ${region}...`);
+console.log(`Destroying ${agentName} in ${region}...`);
 
 try {
   execSync('ts-node scripts/cleanup-wallet-keys.ts', {

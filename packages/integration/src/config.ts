@@ -3,25 +3,16 @@ import { config } from 'dotenv';
 
 config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 
-const prodAz = process.env.CDK_AZ_PROD;
-const testAz = process.env.CDK_AZ_TEST;
-
-if (!prodAz) {
-  throw new Error('CDK_AZ_PROD is not set. Set it in .env (e.g., CDK_AZ_PROD=us-east-1a).');
+const az = process.env.CDK_AZ;
+if (!az) {
+  throw new Error('CDK_AZ is not set. Set it in .env (e.g., CDK_AZ=us-east-1a).');
 }
 
-if (!testAz) {
-  throw new Error('CDK_AZ_TEST is not set. Set it in .env (e.g., CDK_AZ_TEST=us-east-2a).');
+const agentName = process.env.AGENT_NAME;
+if (!agentName) {
+  throw new Error('AGENT_NAME is not set. Set it in .env (e.g., AGENT_NAME=alice).');
 }
 
-const prodRegion = prodAz.slice(0, -1);
-const testRegion = testAz.slice(0, -1);
-
-if (prodRegion === testRegion) {
-  throw new Error(
-    `CDK_AZ_PROD (${prodAz}) and CDK_AZ_TEST (${testAz}) must be in different regions to avoid resource collisions.`,
-  );
-}
-
-export const TEST_REGION = testRegion;
-export const TEST_AZ = testAz;
+export const TEST_REGION = az.slice(0, -1);
+export const TEST_AZ = az;
+export const AGENT_NAME = agentName;

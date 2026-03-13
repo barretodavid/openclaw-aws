@@ -34,7 +34,7 @@ The Gateway SHALL accept authenticated WebSocket connections from the Agent on a
 
 #### Scenario: Agent connectivity
 
-- **GIVEN** the Agent connects via ws://gateway.vpc:18789
+- **GIVEN** the Agent connects via `ws://gateway.${agentName}.vpc:18789`
 - **WHEN** the connection is established
 - **THEN** the Gateway SHALL accept the connection on port 18789
 - **AND** OPENCLAW_ALLOW_INSECURE_PRIVATE_WS SHALL be set to allow plain ws://
@@ -56,7 +56,7 @@ The Gateway SHALL have no access to wallet signing. When Telegram is configured,
 
 - **GIVEN** the Gateway IAM role
 - **WHEN** `TELEGRAM_BOT_TOKEN` is set in `.env`
-- **THEN** it SHALL have Secrets Manager read access scoped to the `openclaw/telegram-token` secret only
+- **THEN** it SHALL have Secrets Manager read access scoped to the `${agentName}/telegram-token` secret only
 
 #### Scenario: No Telegram token access when unconfigured
 

@@ -1,5 +1,5 @@
 /**
- * Schedules deletion of all KMS keys tagged openclaw:wallet.
+ * Schedules deletion of all KMS keys tagged ${AGENT_NAME}:wallet.
  * Runs with the deployer's AWS credentials, not the agent's IAM role.
  * KMS enforces a minimum 7-day waiting period before actual deletion.
  */
@@ -10,14 +10,19 @@ import {
 } from '@aws-sdk/client-resource-groups-tagging-api';
 
 async function main() {
+  const agentName = process.env.AGENT_NAME;
+  if (!agentName) {
+    throw new Error('AGENT_NAME is not set in environment');
+  }
+
   const tagging = new ResourceGroupsTaggingAPIClient({});
   const kms = new KMSClient({});
 
-  console.log('Looking for KMS keys tagged openclaw:wallet...');
+  console.log(`Looking for KMS keys tagged ${agentName}:wallet...`);
 
   const response = await tagging.send(
     new GetResourcesCommand({
-      TagFilters: [{ Key: 'openclaw', Values: ['wallet'] }],
+      TagFilters: [{ Key: agentName, Values: ['wallet'] }],
       ResourceTypeFilters: ['kms:key'],
     }),
   );

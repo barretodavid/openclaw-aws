@@ -5,15 +5,19 @@ import { createClients, discoverInstances, waitForSsmReady, waitForCloudInit } f
 
 config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 
-const az = process.env.CDK_AZ_PROD;
+const agentName = process.env.AGENT_NAME;
+if (!agentName) {
+  throw new Error('AGENT_NAME is not set in .env');
+}
+
+const az = process.env.CDK_AZ;
 if (!az) {
-  throw new Error('CDK_AZ_PROD is not set in .env');
+  throw new Error('CDK_AZ is not set in .env');
 }
 
 const region = az.slice(0, -1);
-const STACK_NAME = 'OpenclawStack';
 
-console.log(`Deploying ${STACK_NAME} to ${region} (${az})...`);
+console.log(`Deploying ${agentName} to ${region} (${az})...`);
 
 execSync('cdk deploy --require-approval never', {
   cwd: path.resolve(__dirname, '..'),
@@ -31,7 +35,7 @@ console.log('Deploy complete. Waiting for instances to be ready...\n');
 async function waitForReady() {
   const { cfn, ec2, ssm } = createClients(region);
 
-  const instances = await discoverInstances(cfn, ec2, STACK_NAME);
+  const instances = await discoverInstances(cfn, ec2, agentName!);
   const instanceIds = [
     instances.agentInstanceId,
     instances.gatewayServerInstanceId,
@@ -44,8 +48,8 @@ async function waitForReady() {
   console.log(`  Agent Server     ${instances.agentInstanceId}`);
   console.log(`  Gateway Server   ${instances.gatewayServerInstanceId}`);
   console.log('\nConnect with:');
-  console.log(`  aws ssm start-session --target ${instances.agentInstanceId}   # Agent`);
-  console.log(`  aws ssm start-session --target ${instances.gatewayServerInstanceId}   # Gateway`);
+  console.log(`  aws ssm start-session --target ${instances.agentInstanceId} --document-name ${agentName}   # Agent`);
+  console.log(`  aws ssm start-session --target ${instances.gatewayServerInstanceId} --document-name ${agentName}   # Gateway`);
 }
 
 waitForReady().catch((err) => {

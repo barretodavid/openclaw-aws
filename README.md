@@ -9,10 +9,10 @@ graph LR
     Laptop -->|"SSM Session Manager"| AgentEC2
     Laptop -->|"SSM Session Manager"| GatewayEC2
     subgraph VPC ["Default VPC -- public subnets"]
-        DNS["Route 53<br/>Private Hosted Zone<br/>(gateway.vpc)"]
+        DNS["Route 53<br/>Private Hosted Zone<br/>(gateway.&lt;AGENT_NAME&gt;.vpc)"]
         AgentEC2["Agent Server<br/>(EC2, configurable)"]
         GatewayEC2["Gateway Server<br/>(EC2 t3a.small)"]
-        AgentEC2 -->|"WebSocket<br/>(ws://gateway.vpc:18789)"| GatewayEC2
+        AgentEC2 -->|"WebSocket<br/>(ws://gateway.&lt;AGENT_NAME&gt;.vpc:18789)"| GatewayEC2
     end
     GatewayEC2 -->|"channel messages"| Channels["Signal / Telegram<br/>/ other channels"]
     AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, gateway token, Telegram token)"]
@@ -125,9 +125,11 @@ Your agent needs a messaging channel so you can talk to it. OpenClaw supports bo
 Edit `.env` and configure:
 
 ```
-# Required: production and test availability zones (must be in DIFFERENT regions)
-CDK_AZ_PROD=us-east-1a
-CDK_AZ_TEST=us-east-2a
+# Required: unique name for this agent (lowercase alphanumeric + hyphens, starts with letter, max 20 chars)
+AGENT_NAME=alice
+
+# Required: availability zone to deploy in
+CDK_AZ=us-east-1a
 
 # LLM Provider (required)
 LLM_PROVIDER=venice
@@ -146,7 +148,7 @@ WEB_SEARCH_API_KEY=...
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 ```
 
-Both `CDK_AZ_PROD` and `CDK_AZ_TEST` are required. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`). The prod and test AZs **must be in different regions** to avoid collisions on account-scoped resources (Secrets Manager, IAM roles).
+`AGENT_NAME` scopes all AWS resources (secrets, DNS, KMS tags, SSM document) so multiple agents can coexist in the same account and region. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`).
 
 ## Deploy
 
@@ -166,7 +168,7 @@ CDK will show the resources to be created and ask for confirmation. After deploy
 
 * **AgentServerInstanceId** -- Agent Server EC2 instance ID
 * **GatewayServerInstanceId** -- Gateway Server EC2 instance ID
-* **GatewayServerPrivateIp** -- Gateway Server private IP (agent connects via `ws://gateway.vpc:18789`)
+* **GatewayServerPrivateIp** -- Gateway Server private IP (agent connects via `ws://gateway.<AGENT_NAME>.vpc:18789`)
 
 ## Connect to instances
 
@@ -174,10 +176,10 @@ Use SSM Session Manager (no SSH keys needed):
 
 ```bash
 # Connect to the Agent Server EC2
-aws ssm start-session --target <AgentServerInstanceId> --document-name ubuntu
+aws ssm start-session --target <AgentServerInstanceId> --document-name <AGENT_NAME>
 
 # Connect to the Gateway Server EC2
-aws ssm start-session --target <GatewayServerInstanceId> --document-name ubuntu
+aws ssm start-session --target <GatewayServerInstanceId> --document-name <AGENT_NAME>
 ```
 
 ## Tear down
@@ -219,7 +221,7 @@ Configure the Telegram bot token by running `openclaw secrets configure` and fol
    - Name: `telegram`
    - Source: `exec`
    - Command: `/usr/local/bin/aws`
-   - Args: `secretsmanager get-secret-value --secret-id openclaw/telegram-token --query SecretString --output text`
+   - Args: `secretsmanager get-secret-value --secret-id <AGENT_NAME>/telegram-token --query SecretString --output text`
    - passEnv: `HOME`
    - jsonOnly: `false`
 
@@ -273,7 +275,7 @@ Copy the auto-generated gateway token and store it in Secrets Manager so the Age
 
 ```bash
 openclaw config get gateway.auth.token
-aws secretsmanager put-secret-value --secret-id openclaw/gateway-token --secret-string "<GATEWAY_TOKEN>"
+aws secretsmanager put-secret-value --secret-id <AGENT_NAME>/gateway-token --secret-string "<GATEWAY_TOKEN>"
 ```
 
 Install and start the gateway service
@@ -296,7 +298,7 @@ Configure OpenClaw with Venice.ai
 
 ```bash
 openclaw onboard --non-interactive --accept-risk \
-  --mode remote --remote-url "ws://gateway.vpc:18789" \
+  --mode remote --remote-url "ws://gateway.<AGENT_NAME>.vpc:18789" \
   --auth-choice venice \
   --model "venice/zai-org-glm-5" \
   --skip-channels --skip-skills --skip-daemon
@@ -315,7 +317,7 @@ Configure the LLM API key by running `openclaw secrets configure` and following 
    - Name: `llm`
    - Source: `exec`
    - Command: `/usr/local/bin/aws`
-   - Args: `secretsmanager get-secret-value --secret-id openclaw/llm-api-key --query SecretString --output text`
+   - Args: `secretsmanager get-secret-value --secret-id <AGENT_NAME>/llm-api-key --query SecretString --output text`
    - passEnv: `HOME`
    - jsonOnly: `false`
 
@@ -335,7 +337,7 @@ Configure the gateway token by running `openclaw secrets configure` and followin
    - Name: `gateway-token`
    - Source: `exec`
    - Command: `/usr/local/bin/aws`
-   - Args: `secretsmanager get-secret-value --secret-id openclaw/gateway-token --query SecretString --output text`
+   - Args: `secretsmanager get-secret-value --secret-id <AGENT_NAME>/gateway-token --query SecretString --output text`
    - passEnv: `HOME`
    - jsonOnly: `false`
 
@@ -355,7 +357,7 @@ Configure web search by running `openclaw secrets configure` and following the p
    - Name: `web`
    - Source: `exec`
    - Command: `/usr/local/bin/aws`
-   - Args: `secretsmanager get-secret-value --secret-id openclaw/web-search-api-key --query SecretString --output text`
+   - Args: `secretsmanager get-secret-value --secret-id <AGENT_NAME>/web-search-api-key --query SecretString --output text`
    - passEnv: `HOME`
    - jsonOnly: `false`
 

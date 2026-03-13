@@ -6,6 +6,32 @@ The infrastructure SHALL be deployable and destroyable via CDK with .env-driven 
 
 ## Requirements
 
+### Requirement: Agent Name Configuration
+
+All deployments SHALL be scoped by a required `AGENT_NAME` environment variable that uniquely identifies the agent within the AWS region.
+
+#### Scenario: AGENT_NAME in .env
+
+- **GIVEN** the `.env` file
+- **THEN** it SHALL include an `AGENT_NAME` entry
+- **AND** it SHALL be documented as required for all deploys
+
+#### Scenario: AGENT_NAME validation at synth time
+
+- **WHEN** the CDK stack is synthesized
+- **THEN** `AGENT_NAME` SHALL be validated: lowercase alphanumeric and hyphens only, must start with a letter, max 20 characters
+- **AND** synth SHALL fail with a descriptive error if validation fails
+
+#### Scenario: Missing AGENT_NAME
+
+- **WHEN** `AGENT_NAME` is not set in the process environment
+- **THEN** CDK synth SHALL fail with an error indicating that `AGENT_NAME` must be set
+
+#### Scenario: Stack ID derived from agent name
+
+- **WHEN** the stack is synthesized
+- **THEN** the CloudFormation stack name SHALL be `${agentName}`
+
 ### Requirement: Web Search API Key
 
 The web search API key SHALL be stored in Secrets Manager and accessible only to the Agent Server. The provider SHALL be configurable via `WEB_SEARCH_PROVIDER` in `.env`.
@@ -29,7 +55,7 @@ The web search API key SHALL be stored in Secrets Manager and accessible only to
 
 - **GIVEN** `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_API_KEY` are set in `.env`
 - **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `openclaw/web-search-api-key` SHALL be created
+- **THEN** a Secrets Manager secret named `${agentName}/web-search-api-key` SHALL be created
 - **AND** only the Agent Server IAM role SHALL have read access to this secret
 - **AND** the Gateway Server role SHALL NOT have access to this secret
 
@@ -54,7 +80,7 @@ An LLM API key SHALL be set in `.env` for CDK synth to succeed.
 - **GIVEN** `LLM_API_KEY` is set in `.env`
 - **WHEN** CDK synth is executed
 - **THEN** the LLM API key validation SHALL pass
-- **AND** a Secrets Manager secret named `openclaw/llm-api-key` SHALL be created
+- **AND** a Secrets Manager secret named `${agentName}/llm-api-key` SHALL be created
 - **AND** only the Agent Server IAM role SHALL have read access to this secret
 
 ### Requirement: RPC API Key
@@ -65,7 +91,7 @@ An RPC API key MAY be set in `.env` for blockchain RPC access.
 
 - **GIVEN** `RPC_API_KEY` is set in `.env`
 - **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `openclaw/rpc-api-key` SHALL be created
+- **THEN** a Secrets Manager secret named `${agentName}/rpc-api-key` SHALL be created
 - **AND** only the Agent Server IAM role SHALL have read access to this secret
 
 ### Requirement: Telegram Bot Token Secret
@@ -76,7 +102,7 @@ The CDK stack SHALL optionally create a Secrets Manager secret for the Telegram 
 
 - **GIVEN** `TELEGRAM_BOT_TOKEN` is set in `.env`
 - **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `openclaw/telegram-token` SHALL be created with the token value
+- **THEN** a Secrets Manager secret named `${agentName}/telegram-token` SHALL be created with the token value
 - **AND** only the Gateway Server IAM role SHALL have read access to this secret
 - **AND** the Agent Server role SHALL NOT have access to this secret
 
@@ -84,7 +110,7 @@ The CDK stack SHALL optionally create a Secrets Manager secret for the Telegram 
 
 - **GIVEN** `TELEGRAM_BOT_TOKEN` is not set in `.env`
 - **WHEN** the stack is deployed
-- **THEN** no `openclaw/telegram-token` secret SHALL be created
+- **THEN** no `${agentName}/telegram-token` secret SHALL be created
 - **AND** the Gateway Server IAM role SHALL NOT have any Secrets Manager permissions
 
 #### Scenario: .env.example entry
@@ -94,12 +120,14 @@ The CDK stack SHALL optionally create a Secrets Manager secret for the Telegram 
 
 ### Requirement: Environment-Driven Configuration
 
-Deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone. Production and test deployments SHALL use separate, explicitly configured availability zones.
+Deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone.
 
 #### Scenario: .env configuration keys
 
 - **GIVEN** the `.env` file
-- **THEN** it SHALL use `LLM_PROVIDER` and `LLM_API_KEY` for the LLM provider configuration
+- **THEN** it SHALL use `AGENT_NAME` for scoping all AWS resources
+- **AND** it SHALL use `CDK_AZ` for the availability zone (region derived by stripping trailing letter)
+- **AND** it SHALL use `LLM_PROVIDER` and `LLM_API_KEY` for the LLM provider configuration
 - **AND** it SHALL use `RPC_PROVIDER` and `RPC_API_KEY` for the RPC provider configuration
 - **AND** it SHALL use `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_API_KEY` for the web search provider configuration
 - **AND** it SHALL use `TELEGRAM_BOT_TOKEN` for the optional Telegram bot token
@@ -116,24 +144,6 @@ Deployment SHALL be controlled by .env file entries. Region SHALL always be deri
 - **GIVEN** `CDK_AZ` is not set in the process environment
 - **WHEN** the stack is synthesized
 - **THEN** synthesis SHALL fail with an error indicating that `CDK_AZ` must be set
-
-#### Scenario: Explicit test AZ in .env
-
-- **GIVEN** `CDK_AZ_TEST` is set in .env (e.g., `us-east-2a`)
-- **WHEN** integration test config is loaded
-- **THEN** the test region SHALL be derived by stripping the trailing letter (e.g., `us-east-2`)
-
-#### Scenario: Missing test AZ
-
-- **GIVEN** `CDK_AZ_TEST` is not set in .env
-- **WHEN** integration test config is loaded
-- **THEN** loading SHALL fail with an error indicating that `CDK_AZ_TEST` must be set in .env
-
-#### Scenario: Test and prod AZs in the same region
-
-- **GIVEN** `CDK_AZ_PROD` and `CDK_AZ_TEST` are set to AZs in the same region (e.g., `us-east-1a` and `us-east-1b`)
-- **WHEN** integration test config is loaded
-- **THEN** loading SHALL fail with an error indicating that prod and test AZs must be in different regions to avoid resource collisions
 
 ### Requirement: CDK Stack Structure
 
@@ -181,62 +191,52 @@ The project SHALL use pnpm workspaces with three packages.
 #### Scenario: Root-level deploy and destroy scripts
 
 - **GIVEN** the project root package.json
-- **THEN** `deploy:prod` SHALL deploy the prod stack and wait for cloud-init
-- **AND** `deploy:test` SHALL deploy the test stack and wait for cloud-init
-- **AND** `destroy:prod` SHALL destroy the prod stack
-- **AND** `destroy:test` SHALL destroy the test stack
-- **AND** there SHALL be no shortcut aliases for `deploy` or `destroy` without an explicit environment suffix
+- **THEN** `deploy` SHALL be the canonical deploy script, deploying the stack using `AGENT_NAME` and `CDK_AZ` from `.env` and waiting for cloud-init
+- **AND** `destroy` SHALL be the canonical destroy script, destroying the stack using `AGENT_NAME` and `CDK_AZ` from `.env`
+
+#### Scenario: Root-level integration scripts
+
+- **GIVEN** the project root package.json
+- **THEN** `integration:deploy` SHALL deploy a stack with hardcoded `AGENT_NAME=test`, reading `CDK_AZ` from `.env`
+- **AND** `integration:destroy` SHALL destroy the stack with hardcoded `AGENT_NAME=test`, reading `CDK_AZ` from `.env`
+- **AND** `integration:run` SHALL run integration tests against the persistent test stack with hardcoded `AGENT_NAME=test`
+- **AND** `integration:login:agent` SHALL start an interactive SSM session to the Agent Server of the test stack with hardcoded `AGENT_NAME=test`
+- **AND** `integration:login:gateway` SHALL start an interactive SSM session to the Gateway Server of the test stack with hardcoded `AGENT_NAME=test`
 
 #### Scenario: Root-level login scripts
 
 - **GIVEN** the project root package.json
-- **THEN** `login:agent` SHALL start an interactive SSM session to the Agent Server in the prod environment
-- **AND** `login:gateway` SHALL start an interactive SSM session to the Gateway Server in the prod environment
-- **AND** `login:agent:prod`, `login:gateway:prod` SHALL be explicit aliases for the prod variants
-- **AND** `login:agent:test`, `login:gateway:test` SHALL start sessions to the respective servers in the test environment
+- **THEN** `login:agent` SHALL start an interactive SSM session to the Agent Server using `AGENT_NAME` and `CDK_AZ` from `.env`
+- **AND** `login:gateway` SHALL start an interactive SSM session to the Gateway Server using `AGENT_NAME` and `CDK_AZ` from `.env`
 
 #### Scenario: Root-level test scripts
 
 - **GIVEN** the project root package.json
-- **THEN** `test` SHALL run unit tests only
-- **AND** `test:unit` SHALL run unit tests across all workspaces that define a `test:unit` script (using `pnpm -r run test:unit`)
+- **THEN** `test` SHALL run unit tests across all workspaces that define a `test:unit` script (using `pnpm -r run test:unit`)
 - **AND** `test:all` SHALL run unit tests then CI sequentially
-- **AND** `test:integration` SHALL run integration tests against an existing test stack
-- **AND** `ci` SHALL deploy the test stack, run integration tests, then destroy the test stack (destroying even if tests fail)
+- **AND** `ci` SHALL deploy a stack with an ephemeral agent name, run integration tests, then destroy the stack (destroying even if tests fail)
 
 ### Requirement: Deploy Commands With Cloud-Init Wait
 
 All deploy commands SHALL wait for cloud-init completion on all 2 EC2 instances before returning, and SHALL print instance IDs with SSM connect instructions.
 
-#### Scenario: Deploy prod stack
+#### Scenario: Deploy stack
 
-- **WHEN** `pnpm run deploy:prod` is executed
-- **THEN** it SHALL deploy the CDK stack using the AZ from `CDK_AZ_PROD` in `.env`
-- **AND** it SHALL wait for SSM agent readiness on all 2 instances
-- **AND** it SHALL wait for cloud-init completion on all 2 instances
-- **AND** it SHALL print instance IDs with `aws ssm start-session` commands
-
-#### Scenario: Deploy test stack
-
-- **WHEN** `pnpm run deploy:test` is executed
-- **THEN** it SHALL deploy the CDK stack using the AZ from `CDK_AZ_TEST` in `.env`
+- **WHEN** `pnpm run deploy` is executed
+- **THEN** it SHALL deploy the CDK stack using `AGENT_NAME` and `CDK_AZ` from `.env`
 - **AND** it SHALL wait for SSM agent readiness on all 2 instances
 - **AND** it SHALL wait for cloud-init completion on all 2 instances
 - **AND** it SHALL print instance IDs with `aws ssm start-session` commands
 
 ### Requirement: Destroy Commands
 
-Destroy commands SHALL use explicit `:prod` and `:test` variants with no shortcut aliases.
+Destroy commands SHALL clean up KMS wallet keys and the CDK stack.
 
-#### Scenario: Destroy prod stack
+#### Scenario: Destroy stack
 
-- **WHEN** `pnpm run destroy:prod` is executed
-- **THEN** it SHALL destroy the CDK stack in the region derived from `CDK_AZ_PROD`
-
-#### Scenario: Destroy test stack
-
-- **WHEN** `pnpm run destroy:test` is executed
-- **THEN** it SHALL destroy the CDK stack in the region derived from `CDK_AZ_TEST`
+- **WHEN** `pnpm run destroy` is executed
+- **THEN** it SHALL clean up KMS keys tagged `${agentName}:wallet` in the region
+- **AND** it SHALL destroy the CDK stack named `${agentName}` in the region derived from `CDK_AZ`
 
 ### Requirement: Shared AWS Utilities Package
 
@@ -278,7 +278,7 @@ The integration test suite SHALL separate infrastructure lifecycle from test exe
 #### Scenario: Run tests against existing stack
 
 - **WHEN** `pnpm run test:integration` is executed
-- **THEN** Jest SHALL discover the deployed stack's instances via CloudFormation and EC2 tags
+- **THEN** Jest SHALL discover the deployed stack's instances via CloudFormation using the stack name derived from `AGENT_NAME`
 - **AND** it SHALL wait for SSM agent readiness on all 2 instances (using shared utilities)
 - **AND** it SHALL wait for cloud-init completion on all 2 instances (using shared utilities)
 - **AND** it SHALL run the test suite via SSM commands against the live instances
@@ -286,7 +286,8 @@ The integration test suite SHALL separate infrastructure lifecycle from test exe
 #### Scenario: CI composite command
 
 - **WHEN** `pnpm run ci` is executed
-- **THEN** it SHALL run `deploy:test`, then integration tests, then `destroy:test` in sequence
+- **THEN** it SHALL generate an ephemeral `AGENT_NAME` (e.g., `ci-${timestamp}`)
+- **AND** it SHALL deploy, run integration tests, then destroy in sequence
 - **AND** the stack SHALL be destroyed even if tests fail
 
 ### Requirement: Cloud-Init Readiness Gate
@@ -365,19 +366,19 @@ The integration test suite SHALL verify that each EC2 instance has its expected 
 
 The project SHALL provide login commands that start interactive SSM sessions to deployed EC2 instances without requiring the user to know instance IDs.
 
-#### Scenario: Login to agent server (prod)
+#### Scenario: Login to agent server
 
 - **WHEN** `pnpm run login:agent` is executed
-- **THEN** it SHALL resolve the region from `CDK_AZ_PROD` in `.env`
-- **AND** it SHALL discover the Agent Server instance ID using `discoverInstances` from the shared package
-- **AND** it SHALL start an interactive SSM session with `--document-name ubuntu`
+- **THEN** it SHALL resolve the region from `CDK_AZ` in `.env`
+- **AND** it SHALL discover the Agent Server instance ID using `discoverInstances` with stack name `${agentName}`
+- **AND** it SHALL start an interactive SSM session with `--document-name ${agentName}`
 
-#### Scenario: Login to gateway server (prod)
+#### Scenario: Login to gateway server
 
-- **WHEN** `pnpm run login:gateway:prod` is executed
-- **THEN** it SHALL resolve the region from `CDK_AZ_PROD` in `.env`
-- **AND** it SHALL discover the Gateway Server instance ID using `discoverInstances` from the shared package
-- **AND** it SHALL start an interactive SSM session with `--document-name ubuntu`
+- **WHEN** `pnpm run login:gateway` is executed
+- **THEN** it SHALL resolve the region from `CDK_AZ` in `.env`
+- **AND** it SHALL discover the Gateway Server instance ID using `discoverInstances` with stack name `${agentName}`
+- **AND** it SHALL start an interactive SSM session with `--document-name ${agentName}`
 
 #### Scenario: Invalid server name
 
@@ -391,7 +392,7 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 
 ### Requirement: Post-Deployment Setup Documentation
 
-The root README.md SHALL include an "OpenClaw Setup" section at the end documenting the CLI-only steps to configure and start OpenClaw after deployment. The section SHALL use Venice.ai as the concrete LLM provider and Brave as the concrete web search provider. Both the Gateway Server and Agent Server use the `openclaw onboard` wizard.
+The root README.md SHALL include an "OpenClaw Setup" section documenting the CLI-only steps to configure and start OpenClaw after deployment. Secret IDs in all commands SHALL use `${agentName}/` prefix instead of `openclaw/`. Gateway WebSocket URL SHALL use `gateway.${agentName}.vpc`.
 
 #### Scenario: Pre-deploy channel choice
 
@@ -424,19 +425,12 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 #### Scenario: Gateway Server Telegram secret configuration
 
 - **WHEN** a user configures Telegram on the Gateway Server
-- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider named `telegram` with source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/telegram-token --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
-- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
-- **AND** it SHALL instruct selecting `channels.telegram.botToken` from the credential list, with source `exec`, provider `telegram`, and secret ID `value`
-- **AND** it SHALL instruct adding the Telegram channel with `openclaw channels add --channel telegram` (without `--token`)
-- **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.telegram.dmPolicy allowlist`
-- **AND** it SHALL instruct adding the user ID to the allowlist with `openclaw config set channels.telegram.allowFrom '["<TELEGRAM_USER_ID>"]'`
-- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
+- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider with args `secretsmanager get-secret-value --secret-id ${agentName}/telegram-token --query SecretString --output text`
 
 #### Scenario: Gateway Server token export
 
 - **WHEN** a user has completed Gateway Server onboard
-- **THEN** it SHALL instruct reading the auto-generated token with `openclaw config get gateway.auth.token`
-- **AND** it SHALL instruct storing the token in Secrets Manager with `aws secretsmanager put-secret-value --secret-id openclaw/gateway-token --secret-string "<GATEWAY_TOKEN>"`
+- **THEN** it SHALL instruct storing the token in Secrets Manager with `aws secretsmanager put-secret-value --secret-id ${agentName}/gateway-token --secret-string "<GATEWAY_TOKEN>"`
 
 #### Scenario: Gateway Server service management
 
@@ -452,14 +446,12 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 #### Scenario: Agent Server setup via wizard
 
 - **WHEN** a user configures OpenClaw on the Agent Server
-- **THEN** the documentation SHALL instruct running `openclaw onboard` with appropriate flags for remote mode connecting to `ws://gateway.vpc:18789`, using the LLM provider API key from Secrets Manager
+- **THEN** the documentation SHALL instruct running `openclaw onboard` with appropriate flags for remote mode connecting to `ws://gateway.${agentName}.vpc:18789`
 
 #### Scenario: Agent Server gateway token configuration
 
 - **WHEN** a user configures the gateway token on the Agent Server
-- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider named `gateway-token` with source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/gateway-token --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
-- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
-- **AND** it SHALL instruct selecting `gateway.remote.token` from the credential list, with source `exec`, provider `gateway-token`, and secret ID `value`
+- **THEN** it SHALL document running `openclaw secrets configure` with args `secretsmanager get-secret-value --secret-id ${agentName}/gateway-token --query SecretString --output text`
 
 #### Scenario: Agent Server model configuration
 
@@ -470,17 +462,12 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 #### Scenario: Agent Server web search configuration
 
 - **WHEN** a user configures web search on the Agent Server
-- **THEN** it SHALL document running `openclaw secrets configure` to set up the exec SecretRef provider
-- **AND** it SHALL provide step-by-step wizard guidance: provider name `web`, source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/web-search-api-key --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
-- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
-- **AND** it SHALL instruct selecting the appropriate credential field from the credential list (`tools.web.search.apiKey` for brave, `tools.web.search.<provider>.apiKey` for others), with source `exec`, provider `web`, and secret ID `value`
+- **THEN** it SHALL document running `openclaw secrets configure` with args `secretsmanager get-secret-value --secret-id ${agentName}/web-search-api-key --query SecretString --output text`
 
 #### Scenario: Agent Server LLM secret configuration
 
 - **WHEN** a user configures the LLM secret on the Agent Server
-- **THEN** it SHALL document running `openclaw secrets configure` to set up the exec SecretRef provider
-- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
-- **AND** it SHALL instruct selecting `models.providers.venice.apiKey` from the credential list, with source `exec`, provider `llm`, and secret ID `value`
+- **THEN** it SHALL document running `openclaw secrets configure` with args `secretsmanager get-secret-value --secret-id ${agentName}/llm-api-key --query SecretString --output text`
 
 #### Scenario: Agent Server start
 
@@ -502,18 +489,18 @@ The CDK stack SHALL create a Secrets Manager secret for the gateway authenticati
 #### Scenario: Secret creation
 
 - **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `openclaw/gateway-token` SHALL be created with a placeholder value
+- **THEN** a Secrets Manager secret named `${agentName}/gateway-token` SHALL be created with a placeholder value
 - **AND** the secret description SHALL indicate it is for gateway authentication and is populated post-deploy
 
 #### Scenario: Agent Server access
 
 - **WHEN** the Agent Server IAM role is evaluated
-- **THEN** it SHALL have read access to the `openclaw/gateway-token` secret
+- **THEN** it SHALL have read access to the `${agentName}/gateway-token` secret
 
 #### Scenario: Gateway Server access
 
 - **WHEN** the Gateway Server IAM role is evaluated
-- **THEN** it SHALL NOT have access to the `openclaw/gateway-token` secret
+- **THEN** it SHALL NOT have access to the `${agentName}/gateway-token` secret
 
 ### Requirement: CDK README Accurately Describes Current Architecture
 
@@ -534,7 +521,7 @@ The `packages/cdk/README.md` SHALL include a "Rotate an API key" section that li
 
 #### Scenario: All secret names are listed
 - **WHEN** an operator reads the rotation section
-- **THEN** it SHALL list `openclaw/llm-api-key`, `openclaw/rpc-api-key`, `openclaw/web-search-api-key`, `openclaw/gateway-token`, and `openclaw/telegram-token`
+- **THEN** it SHALL list `${agentName}/llm-api-key`, `${agentName}/rpc-api-key`, `${agentName}/web-search-api-key`, `${agentName}/gateway-token`, and `${agentName}/telegram-token`
 
 #### Scenario: No-restart behavior is documented
 - **WHEN** an operator reads the rotation section

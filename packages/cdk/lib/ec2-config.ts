@@ -1,5 +1,23 @@
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 
+// --- Agent Name ---
+
+const AGENT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,19}$/;
+
+/** Reads and validates AGENT_NAME from process.env. */
+export function resolveAgentName(): string {
+  const name = process.env.AGENT_NAME;
+  if (!name) {
+    throw new Error('AGENT_NAME is required in .env (e.g., AGENT_NAME=alice).');
+  }
+  if (!AGENT_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid AGENT_NAME "${name}". Must be lowercase alphanumeric + hyphens, start with a letter, max 20 characters.`,
+    );
+  }
+  return name;
+}
+
 // --- Provider Registries (validation-only, OpenClaw handles routing natively) ---
 
 export const LLM_PROVIDERS: Record<string, { domain: string }> = {

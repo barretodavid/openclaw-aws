@@ -13,7 +13,7 @@ A Route 53 private hosted zone SHALL provide internal DNS for service discovery.
 #### Scenario: Zone configuration
 
 - **WHEN** the stack is deployed
-- **THEN** a private hosted zone with name "vpc" SHALL be created
+- **THEN** a private hosted zone with name `${agentName}.vpc` SHALL be created
 - **AND** it SHALL be associated with the default VPC
 
 ### Requirement: Service DNS Records
@@ -23,7 +23,7 @@ DNS A records SHALL map service names to instance private IPs.
 #### Scenario: Base service records
 
 - **WHEN** the stack is deployed
-- **THEN** gateway.vpc SHALL resolve to the Gateway instance private IP
+- **THEN** `gateway.${agentName}.vpc` SHALL resolve to the Gateway instance private IP
 - **AND** no DNS record SHALL point to the Agent instance
 
 ### Requirement: Default VPC Usage

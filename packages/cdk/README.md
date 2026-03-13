@@ -11,15 +11,15 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 | Remote Access | SSM Session Manager | Shell access to all EC2 instances without open ports | No inbound ports, no SSH keys to manage, IAM-based access control, full session audit via CloudTrail |
 | Wallet Key | KMS (ECC_NIST_P256) | Starknet secp256r1 signing -- private key never leaves HSM | Hardware-backed key that supports `Sign` API; key material is non-extractable by design |
 | API Key Secrets | Secrets Manager | Stores LLM, RPC, web search, and gateway token secrets (Agent Server) + Telegram token (Gateway Server) | Encrypted at rest, fine-grained IAM access; each server fetches only its own secrets at runtime via OpenClaw's exec provider |
-| Private DNS | Route 53 Private Hosted Zone (`vpc`) | `gateway.vpc` for gateway server | Agent addresses gateway by hostname |
+| Private DNS | Route 53 Private Hosted Zone (`<AGENT_NAME>.vpc`) | `gateway.<AGENT_NAME>.vpc` for gateway server | Agent addresses gateway by hostname |
 | Network | Default VPC, public subnets | Hosts all EC2 instances | No custom VPC or NAT Gateway needed; security comes from IAM/KMS boundaries and security groups (no inbound rules), not network isolation |
 
 ## Security Boundaries
 
 * Agent never sees private key material -- signs via KMS `Sign` API only
 * Agent never sees channel credentials -- they are stored on the Gateway Server EC2 which has its own IAM role
-* **Agent Server EC2 IAM role** grants: KMS wallet operations (`CreateKey`, `Sign`, `GetPublicKey`, `DescribeKey`, `TagResource` scoped to `openclaw:wallet` tag) + `secretsmanager:GetSecretValue` on the four API key secrets + `AmazonSSMManagedInstanceCore` managed policy
-* **Gateway Server EC2 IAM role** grants: `AmazonSSMManagedInstanceCore` managed policy + conditional `secretsmanager:GetSecretValue` on `openclaw/telegram-token` when `TELEGRAM_BOT_TOKEN` is set in `.env` (no KMS)
+* **Agent Server EC2 IAM role** grants: KMS wallet operations (`CreateKey`, `Sign`, `GetPublicKey`, `DescribeKey`, `TagResource` scoped to `<AGENT_NAME>:wallet` tag) + `secretsmanager:GetSecretValue` on the four API key secrets + `AmazonSSMManagedInstanceCore` managed policy
+* **Gateway Server EC2 IAM role** grants: `AmazonSSMManagedInstanceCore` managed policy + conditional `secretsmanager:GetSecretValue` on `<AGENT_NAME>/telegram-token` when `TELEGRAM_BOT_TOKEN` is set in `.env` (no KMS)
 * Two separate EC2 instances = two separate IAM roles -- a compromised gateway server cannot access the wallet key or Agent Server API key secrets
 * Gateway Server security group: inbound only from Agent Server EC2 security group on port 18789 (WebSocket); outbound HTTPS (443) for channel APIs (Signal, Telegram), HTTP (80) for apt
 * Agent Server security group: no inbound from internet; outbound HTTPS (443), HTTP (80 for package repos), port 18789 to gateway server
@@ -31,7 +31,7 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 * **Broad HTTPS egress for Agent EC2** -- Restricting the agent to specific IPs would limit its usefulness. The security model relies on IAM and KMS boundaries to protect secrets, not on network egress filtering. The private key never leaves KMS, and API key secrets are scoped to the agent's IAM role.
 * **Transaction guardrails on-chain, not in AWS** -- KMS signs whatever hash is sent to it and cannot judge transaction intent. Instead of CloudTrail alerting (which only detects after the fact), spending limits, whitelisted addresses, rate limits, and time locks are enforced at the Starknet account contract level. This prevents malicious transactions at the protocol level even if the agent and KMS are fully compromised.
 * **Default VPC with public subnets, no NAT Gateway** -- Private subnets + NAT Gateway add ~$32/month and complexity for minimal security benefit. Our security model relies on IAM roles and KMS, not network isolation. Security groups with no inbound rules make the instances unreachable from the internet. Outbound internet works directly without a NAT Gateway.
-* **Separate gateway server instance for channel credential isolation** -- Channel credentials (Signal phone registration, Telegram bot tokens) are high-value targets. Running the gateway on a separate EC2 instance with its own IAM role means a compromised agent cannot exfiltrate them. The agent communicates with the gateway server over a plain WebSocket (`ws://gateway.vpc:18789`) within the VPC -- TLS is unnecessary since the threat model is software compromise (credential exfiltration), not network sniffing within the VPC.
+* **Separate gateway server instance for channel credential isolation** -- Channel credentials (Signal phone registration, Telegram bot tokens) are high-value targets. Running the gateway on a separate EC2 instance with its own IAM role means a compromised agent cannot exfiltrate them. The agent communicates with the gateway server over a plain WebSocket (`ws://gateway.<AGENT_NAME>.vpc:18789`) within the VPC -- TLS is unnecessary since the threat model is software compromise (credential exfiltration), not network sniffing within the VPC.
 * **`OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` set by default** -- OpenClaw requires this env var to use plain `ws://` over non-loopback interfaces. Both the Agent Server and Gateway Server instances set it via `/etc/profile.d/openclaw.sh` in user data. This is safe because the gateway server security group restricts inbound to the Agent SG on port 18789 only -- the SG is the access control layer, not WebSocket auth.
 
 ## Configuration
@@ -39,8 +39,9 @@ AWS CDK stack that provisions all infrastructure for the OpenClaw agent: EC2 ins
 Edit `bin/openclaw.ts` to customize deployment settings:
 
 ```typescript
-new OpenclawStack(app, 'OpenclawStack', {
+new OpenclawStack(app, agentName, {
   // ...
+  agentName,
   availabilityZone: 'ca-central-1b',
   agentInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.LARGE),
   gatewayServerInstanceType: ec2.InstanceType.of(ec2.InstanceClass.T3A, ec2.InstanceSize.SMALL),
@@ -66,17 +67,17 @@ The stack creates up to five Secrets Manager secrets:
 
 | Secret name | `.env` variable | Required | Readable by |
 |---|---|---|---|
-| `openclaw/llm-api-key` | `LLM_API_KEY` | Yes | Agent Server |
-| `openclaw/rpc-api-key` | `RPC_API_KEY` | No | Agent Server |
-| `openclaw/web-search-api-key` | `WEB_SEARCH_API_KEY` | Yes | Agent Server |
-| `openclaw/gateway-token` | (populated post-deploy) | Yes | Agent Server |
-| `openclaw/telegram-token` | `TELEGRAM_BOT_TOKEN` | No | Gateway Server |
+| `<AGENT_NAME>/llm-api-key` | `LLM_API_KEY` | Yes | Agent Server |
+| `<AGENT_NAME>/rpc-api-key` | `RPC_API_KEY` | No | Agent Server |
+| `<AGENT_NAME>/web-search-api-key` | `WEB_SEARCH_API_KEY` | Yes | Agent Server |
+| `<AGENT_NAME>/gateway-token` | (populated post-deploy) | Yes | Agent Server |
+| `<AGENT_NAME>/telegram-token` | `TELEGRAM_BOT_TOKEN` | No | Gateway Server |
 
 To rotate a key:
 
 ```bash
 aws secretsmanager put-secret-value \
-  --secret-id openclaw/llm-api-key \
+  --secret-id <AGENT_NAME>/llm-api-key \
   --secret-string "new-api-key-here"
 ```
 

@@ -14,6 +14,8 @@ import { resolveAgentMachine, ubuntuBaseUserData, requireWebProvider, requireLlm
 const GATEWAY_PORT = 18789;
 
 export interface OpenclawStackProps extends cdk.StackProps {
+  /** Agent name used to scope all AWS resources. */
+  readonly agentName: string;
   /** Agent Server EC2 instance type. Must be x86_64. */
   readonly agentInstanceType: ec2.InstanceType;
   /** Gateway Server EC2 instance type. Must be x86_64. */
@@ -27,6 +29,8 @@ export interface OpenclawStackProps extends cdk.StackProps {
 export class OpenclawStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: OpenclawStackProps) {
     super(scope, id, props);
+
+    const { agentName } = props;
 
     // --- Default VPC ---
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
@@ -61,13 +65,13 @@ export class OpenclawStack extends cdk.Stack {
       ],
     });
 
-    // Create wallet keys -- only ECC_NIST_P256 SIGN_VERIFY with the openclaw:wallet tag
+    // Create wallet keys -- only ECC_NIST_P256 SIGN_VERIFY with the ${agentName}:wallet tag
     agentRole.addToPolicy(new iam.PolicyStatement({
       actions: ['kms:CreateKey'],
       resources: ['*'],
       conditions: {
         StringEquals: {
-          'aws:RequestTag/openclaw': 'wallet',
+          [`aws:RequestTag/${agentName}`]: 'wallet',
           'kms:KeySpec': 'ECC_NIST_P256',
           'kms:KeyUsage': 'SIGN_VERIFY',
         },
@@ -88,7 +92,7 @@ export class OpenclawStack extends cdk.Stack {
       resources: ['*'],
       conditions: {
         StringEquals: {
-          'aws:ResourceTag/openclaw': 'wallet',
+          [`aws:ResourceTag/${agentName}`]: 'wallet',
         },
       },
     }));
@@ -114,7 +118,7 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- LLM API Key Secret (Agent Server only) ---
     const llmSecret = new secretsmanager.Secret(this, 'LlmApiKeySecret', {
-      secretName: 'openclaw/llm-api-key',
+      secretName: `${agentName}/llm-api-key`,
       description: 'LLM provider API key - only the Agent Server EC2 can read this',
       secretStringValue: cdk.SecretValue.unsafePlainText(llmApiKey),
     });
@@ -123,7 +127,7 @@ export class OpenclawStack extends cdk.Stack {
     // --- RPC API Key Secret (Agent Server only, optional) ---
     if (rpcApiKey) {
       const rpcSecret = new secretsmanager.Secret(this, 'RpcApiKeySecret', {
-        secretName: 'openclaw/rpc-api-key',
+        secretName: `${agentName}/rpc-api-key`,
         description: 'RPC provider API key - only the Agent Server EC2 can read this',
         secretStringValue: cdk.SecretValue.unsafePlainText(rpcApiKey),
       });
@@ -133,7 +137,7 @@ export class OpenclawStack extends cdk.Stack {
     // --- Web Search Secret (Agent Server only) ---
     const webApiKey = requireWebProvider();
     const webSecret = new secretsmanager.Secret(this, 'WebApiKeySecret', {
-      secretName: 'openclaw/web-search-api-key',
+      secretName: `${agentName}/web-search-api-key`,
       description: 'Web search provider API key - only the Agent Server EC2 can read this',
       secretStringValue: cdk.SecretValue.unsafePlainText(webApiKey),
     });
@@ -141,7 +145,7 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- Gateway Token Secret (Agent Server reads, operator populates post-deploy) ---
     const gatewayTokenSecret = new secretsmanager.Secret(this, 'GatewayTokenSecret', {
-      secretName: 'openclaw/gateway-token',
+      secretName: `${agentName}/gateway-token`,
       description: 'Gateway authentication token - populated post-deploy, only the Agent Server EC2 can read this',
     });
     gatewayTokenSecret.grantRead(agentRole);
@@ -149,7 +153,7 @@ export class OpenclawStack extends cdk.Stack {
     // --- Telegram Bot Token Secret (Gateway Server only, optional) ---
     if (telegramToken) {
       const telegramSecret = new secretsmanager.Secret(this, 'TelegramTokenSecret', {
-        secretName: 'openclaw/telegram-token',
+        secretName: `${agentName}/telegram-token`,
         description: 'Telegram bot token - only the Gateway Server EC2 can read this',
         secretStringValue: cdk.SecretValue.unsafePlainText(telegramToken),
       });
@@ -216,7 +220,7 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- Private DNS ---
     const hostedZone = new route53.PrivateHostedZone(this, 'InternalZone', {
-      zoneName: 'vpc',
+      zoneName: `${agentName}.vpc`,
       vpc,
     });
 
@@ -228,7 +232,7 @@ export class OpenclawStack extends cdk.Stack {
 
     // --- SSM Session Document (login as ubuntu) ---
     new ssm.CfnDocument(this, 'SessionDocument', {
-      name: 'ubuntu',
+      name: agentName,
       documentType: 'Session',
       content: {
         schemaVersion: '1.0',
@@ -245,17 +249,17 @@ export class OpenclawStack extends cdk.Stack {
     // --- Stack Outputs ---
     new cdk.CfnOutput(this, 'AgentServerInstanceId', {
       value: agentInstance.instanceId,
-      description: 'Agent Server EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
+      description: `Agent Server EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ${agentName}`,
     });
 
     new cdk.CfnOutput(this, 'GatewayServerInstanceId', {
       value: gatewayServerInstance.instanceId,
-      description: 'Gateway Server EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ubuntu',
+      description: `Gateway Server EC2 instance ID - use with: aws ssm start-session --target <id> --document-name ${agentName}`,
     });
 
     new cdk.CfnOutput(this, 'GatewayServerPrivateIp', {
       value: gatewayServerInstance.instancePrivateIp,
-      description: 'Gateway Server address: ws://gateway.vpc:18789',
+      description: `Gateway Server address: ws://gateway.${agentName}.vpc:${GATEWAY_PORT}`,
     });
   }
 }
