@@ -44,6 +44,15 @@ describe('IAM Boundary Verification', () => {
     expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
   });
 
+  test('Gateway Server can read Telegram token secret from Secrets Manager', async () => {
+    const result = await runCommand(
+      ctx.gatewayServerInstanceId,
+      `aws secretsmanager get-secret-value --secret-id openclaw/telegram-token --region ${TEST_REGION} --query SecretString --output text`,
+    );
+
+    expect(result.stdout.trim()).toBeTruthy();
+  });
+
   test('Gateway Server cannot read gateway token secret from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.gatewayServerInstanceId,
@@ -57,11 +66,11 @@ describe('IAM Boundary Verification', () => {
   test('Gateway Server cannot read API keys from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.gatewayServerInstanceId,
-      `aws secretsmanager get-secret-value --secret-id test-nonexistent --region ${TEST_REGION} 2>&1 || true`,
+      `aws secretsmanager get-secret-value --secret-id openclaw/llm-api-key --region ${TEST_REGION} 2>&1 || true`,
     );
 
     const output = result.stdout + result.stderr;
-    expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
+    expect(output).toMatch(/AccessDeniedException|not authorized/i);
   });
 
   test('Gateway Server cannot sign with KMS', async () => {

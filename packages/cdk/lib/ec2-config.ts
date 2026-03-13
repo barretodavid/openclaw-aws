@@ -123,6 +123,12 @@ export function resolveRpcProvider(): string | null {
   return apiKey;
 }
 
+/** Optionally resolves TELEGRAM_BOT_TOKEN from .env. Returns the token or null. */
+export function resolveTelegramToken(): string | null {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  return token || null;
+}
+
 // --- Agent Machine Configuration ---
 
 /** Configuration for the agent EC2 instance. */

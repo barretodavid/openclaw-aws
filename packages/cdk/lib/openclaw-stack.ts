@@ -9,7 +9,7 @@ import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import { Construct } from 'constructs';
-import { resolveAgentMachine, ubuntuBaseUserData, requireWebProvider, requireLlmProvider, resolveRpcProvider } from './ec2-config';
+import { resolveAgentMachine, ubuntuBaseUserData, requireWebProvider, requireLlmProvider, resolveRpcProvider, resolveTelegramToken } from './ec2-config';
 
 const GATEWAY_PORT = 18789;
 
@@ -101,7 +101,7 @@ export class OpenclawStack extends cdk.Stack {
 
     const gatewayServerRole = new iam.Role(this, 'GatewayServerRole', {
       assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-      description: 'Gateway Server EC2 role - SSM Session Manager only (no KMS, no Secrets Manager)',
+      description: 'Gateway Server EC2 role - SSM Session Manager + conditional Secrets Manager for Telegram token (no KMS)',
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
       ],
@@ -110,6 +110,7 @@ export class OpenclawStack extends cdk.Stack {
     // --- Validate Required Keys ---
     const llmApiKey = requireLlmProvider();
     const rpcApiKey = resolveRpcProvider();
+    const telegramToken = resolveTelegramToken();
 
     // --- LLM API Key Secret (Agent Server only) ---
     const llmSecret = new secretsmanager.Secret(this, 'LlmApiKeySecret', {
@@ -144,6 +145,16 @@ export class OpenclawStack extends cdk.Stack {
       description: 'Gateway authentication token - populated post-deploy, only the Agent Server EC2 can read this',
     });
     gatewayTokenSecret.grantRead(agentRole);
+
+    // --- Telegram Bot Token Secret (Gateway Server only, optional) ---
+    if (telegramToken) {
+      const telegramSecret = new secretsmanager.Secret(this, 'TelegramTokenSecret', {
+        secretName: 'openclaw/telegram-token',
+        description: 'Telegram bot token - only the Gateway Server EC2 can read this',
+        secretStringValue: cdk.SecretValue.unsafePlainText(telegramToken),
+      });
+      telegramSecret.grantRead(gatewayServerRole);
+    }
 
     // --- EC2 Instances ---
 

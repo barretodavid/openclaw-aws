@@ -23,8 +23,10 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 
 - **GIVEN** the Gateway EC2 instance
 - **WHEN** its IAM role is evaluated
-- **THEN** it SHALL have only SSM Session Manager access
-- **AND** it SHALL NOT have KMS or Secrets Manager permissions
+- **THEN** it SHALL have SSM Session Manager access
+- **AND** it SHALL NOT have KMS permissions
+- **AND** when `TELEGRAM_BOT_TOKEN` is set in `.env`, it SHALL have Secrets Manager read access scoped to the `openclaw/telegram-token` secret only
+- **AND** when `TELEGRAM_BOT_TOKEN` is not set in `.env`, it SHALL NOT have any Secrets Manager permissions
 
 ### Requirement: No Public Inbound Traffic
 

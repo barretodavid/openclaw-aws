@@ -68,6 +68,30 @@ An RPC API key MAY be set in `.env` for blockchain RPC access.
 - **THEN** a Secrets Manager secret named `openclaw/rpc-api-key` SHALL be created
 - **AND** only the Agent Server IAM role SHALL have read access to this secret
 
+### Requirement: Telegram Bot Token Secret
+
+The CDK stack SHALL optionally create a Secrets Manager secret for the Telegram bot token when `TELEGRAM_BOT_TOKEN` is set in `.env`, readable only by the Gateway Server.
+
+#### Scenario: Secret creation when token is set
+
+- **GIVEN** `TELEGRAM_BOT_TOKEN` is set in `.env`
+- **WHEN** the stack is deployed
+- **THEN** a Secrets Manager secret named `openclaw/telegram-token` SHALL be created with the token value
+- **AND** only the Gateway Server IAM role SHALL have read access to this secret
+- **AND** the Agent Server role SHALL NOT have access to this secret
+
+#### Scenario: No secret when token is not set
+
+- **GIVEN** `TELEGRAM_BOT_TOKEN` is not set in `.env`
+- **WHEN** the stack is deployed
+- **THEN** no `openclaw/telegram-token` secret SHALL be created
+- **AND** the Gateway Server IAM role SHALL NOT have any Secrets Manager permissions
+
+#### Scenario: .env.example entry
+
+- **GIVEN** the `.env.example` file
+- **THEN** it SHALL include a `TELEGRAM_BOT_TOKEN` entry with a comment indicating it is optional and only needed for Telegram channel support
+
 ### Requirement: Environment-Driven Configuration
 
 Deployment SHALL be controlled by .env file entries. Region SHALL always be derived from the resolved availability zone. Production and test deployments SHALL use separate, explicitly configured availability zones.
@@ -78,6 +102,7 @@ Deployment SHALL be controlled by .env file entries. Region SHALL always be deri
 - **THEN** it SHALL use `LLM_PROVIDER` and `LLM_API_KEY` for the LLM provider configuration
 - **AND** it SHALL use `RPC_PROVIDER` and `RPC_API_KEY` for the RPC provider configuration
 - **AND** it SHALL use `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_API_KEY` for the web search provider configuration
+- **AND** it SHALL use `TELEGRAM_BOT_TOKEN` for the optional Telegram bot token
 
 #### Scenario: CDK availability zone input
 
@@ -368,6 +393,13 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 
 The root README.md SHALL include an "OpenClaw Setup" section at the end documenting the CLI-only steps to configure and start OpenClaw after deployment. The section SHALL use Venice.ai as the concrete LLM provider and Brave as the concrete web search provider. Both the Gateway Server and Agent Server use the `openclaw onboard` wizard.
 
+#### Scenario: Pre-deploy channel choice
+
+- **WHEN** a user reads the pre-deploy prerequisites
+- **THEN** the documentation SHALL include a channel comparison table (Telegram vs Signal) before the `.env` configuration section
+- **AND** it SHALL instruct Telegram users to create a bot via BotFather and add the token to `.env` as `TELEGRAM_BOT_TOKEN`
+- **AND** it SHALL note that Signal users can skip this step (Signal setup is post-deploy)
+
 #### Scenario: Gateway Server login
 
 - **WHEN** a user begins Gateway Server setup
@@ -387,6 +419,17 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 - **AND** it SHALL instruct adding the Signal channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
 - **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.signal.dmPolicy allowlist`
 - **AND** it SHALL instruct adding the owner's phone number to the allowlist with `openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
+- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
+
+#### Scenario: Gateway Server Telegram secret configuration
+
+- **WHEN** a user configures Telegram on the Gateway Server
+- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider named `telegram` with source `exec`, command `/usr/local/bin/aws`, args `secretsmanager get-secret-value --secret-id openclaw/telegram-token --query SecretString --output text`, passEnv `HOME`, jsonOnly `false`
+- **AND** it SHALL instruct selecting "Continue" from the provider menu to enter credential mapping
+- **AND** it SHALL instruct selecting `channels.telegram.botToken` from the credential list, with source `exec`, provider `telegram`, and secret ID `value`
+- **AND** it SHALL instruct adding the Telegram channel with `openclaw channels add --channel telegram` (without `--token`)
+- **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.telegram.dmPolicy allowlist`
+- **AND** it SHALL instruct adding the user ID to the allowlist with `openclaw config set channels.telegram.allowFrom '["<TELEGRAM_USER_ID>"]'`
 - **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
 
 #### Scenario: Gateway Server token export
@@ -447,7 +490,7 @@ The root README.md SHALL include an "OpenClaw Setup" section at the end document
 #### Scenario: Variable placeholders
 
 - **WHEN** a command contains user-specific values
-- **THEN** the documentation SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`, `<GATEWAY_TOKEN>`)
+- **THEN** the documentation SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`, `<GATEWAY_TOKEN>`, `<TELEGRAM_USER_ID>`)
 - **AND** it SHALL define each placeholder with a brief description
 - **AND** it SHALL NOT use placeholders for LLM provider, model, or API key values (these SHALL use concrete Venice values)
 - **AND** it SHALL NOT use placeholders for web search provider values (these SHALL use concrete Brave values)
@@ -479,10 +522,11 @@ The `packages/cdk/README.md` SHALL document only the components that exist in th
 #### Scenario: Components table matches deployed infrastructure
 - **WHEN** an operator reads the components table in `packages/cdk/README.md`
 - **THEN** it SHALL list only: Agent Server, Gateway Server, Remote Access (SSM), Wallet Key (KMS), API Key Secrets (Secrets Manager), and Private DNS (Route 53)
+- **AND** the API Key Secrets description SHALL note that the Gateway Server can also read the Telegram token secret when configured
 
-#### Scenario: Security boundaries reflect two-server architecture
+#### Scenario: Security boundaries reflect conditional gateway access
 - **WHEN** an operator reads the security boundaries section
-- **THEN** it SHALL describe two IAM roles (Agent Server and Gateway Server) with no proxy server references
+- **THEN** it SHALL describe the Gateway Server IAM role as having SSM access plus conditional Secrets Manager read access for the Telegram token (when `TELEGRAM_BOT_TOKEN` is set in `.env`)
 
 ### Requirement: Secret Rotation Documentation
 
@@ -490,7 +534,7 @@ The `packages/cdk/README.md` SHALL include a "Rotate an API key" section that li
 
 #### Scenario: All secret names are listed
 - **WHEN** an operator reads the rotation section
-- **THEN** it SHALL list `openclaw/llm-api-key`, `openclaw/rpc-api-key`, `openclaw/web-search-api-key`, and `openclaw/gateway-token`
+- **THEN** it SHALL list `openclaw/llm-api-key`, `openclaw/rpc-api-key`, `openclaw/web-search-api-key`, `openclaw/gateway-token`, and `openclaw/telegram-token`
 
 #### Scenario: No-restart behavior is documented
 - **WHEN** an operator reads the rotation section
@@ -499,3 +543,14 @@ The `packages/cdk/README.md` SHALL include a "Rotate an API key" section that li
 #### Scenario: CDK overwrite warning is present
 - **WHEN** an operator reads the rotation section
 - **THEN** it SHALL warn that `.env` must also be updated, otherwise the next `cdk deploy` will revert the secret to the old value
+
+### Requirement: Architecture Diagram
+
+The root README.md Mermaid architecture diagram SHALL accurately reflect which servers read from Secrets Manager.
+
+#### Scenario: Gateway Server Secrets Manager access in diagram
+
+- **WHEN** a user reads the architecture diagram
+- **THEN** it SHALL show the Gateway Server reading the Telegram token from Secrets Manager
+- **AND** it SHALL show the Agent Server reading API keys from Secrets Manager
+- **AND** the Secrets Manager node label SHALL include the Telegram token in its list of secrets

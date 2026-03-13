@@ -43,14 +43,26 @@ The Gateway SHALL accept authenticated WebSocket connections from the Agent on a
 
 ### Requirement: Isolation
 
-The Gateway SHALL have no access to API keys or wallet signing.
+The Gateway SHALL have no access to wallet signing. When Telegram is configured, the Gateway SHALL have scoped Secrets Manager read access for its bot token only.
 
 #### Scenario: Minimal permissions
 
 - **GIVEN** the Gateway IAM role
 - **WHEN** evaluated
-- **THEN** it SHALL have zero inline policy actions beyond SSM Session Manager
-- **AND** it SHALL NOT have Secrets Manager or KMS permissions
+- **THEN** it SHALL have zero inline policy actions beyond SSM Session Manager and any conditional Secrets Manager access for the Telegram token
+- **AND** it SHALL NOT have KMS permissions
+
+#### Scenario: Telegram token access
+
+- **GIVEN** the Gateway IAM role
+- **WHEN** `TELEGRAM_BOT_TOKEN` is set in `.env`
+- **THEN** it SHALL have Secrets Manager read access scoped to the `openclaw/telegram-token` secret only
+
+#### Scenario: No Telegram token access when unconfigured
+
+- **GIVEN** the Gateway IAM role
+- **WHEN** `TELEGRAM_BOT_TOKEN` is not set in `.env`
+- **THEN** it SHALL NOT have any Secrets Manager permissions
 
 ### Requirement: Default Instance Sizing
 

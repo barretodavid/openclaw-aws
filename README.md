@@ -1,6 +1,6 @@
 # OpenClaw Safe Agent Infrastructure
 
-Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS), API keys (via Secrets Manager), and channel credentials (via gateway server isolation) so that even a compromised agent cannot extract the wallet key.
+Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS), API keys and channel credentials (via Secrets Manager with per-server IAM scoping) so that even a compromised agent cannot extract the wallet key.
 
 ## Architecture
 
@@ -15,7 +15,8 @@ graph LR
         AgentEC2 -->|"WebSocket<br/>(ws://gateway.vpc:18789)"| GatewayEC2
     end
     GatewayEC2 -->|"channel messages"| Channels["Signal / Telegram<br/>/ other channels"]
-    AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, gateway token)"]
+    AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, gateway token, Telegram token)"]
+    GatewayEC2 -->|"reads Telegram token"| SM
     AgentEC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
     AgentEC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
     AgentEC2 <-->|"Sign(tx hash) / signature"| KMS["KMS<br/>(ECC_NIST_P256)"]
@@ -94,6 +95,33 @@ npm install
 cp .env.example .env
 ```
 
+### Choose a messaging channel
+
+Your agent needs a messaging channel so you can talk to it. OpenClaw supports both Telegram and Signal. Choose one before deploying:
+
+| | Telegram (default) | Signal |
+|---|---|---|
+| **Setup time** | ~2 minutes | ~10-15 minutes |
+| **Extra phone number required** | No | Yes (dedicated number) |
+| **End-to-end encryption** | No -- Telegram servers can see bot messages | Yes -- messages are E2E encrypted |
+| **What the provider sees** | All messages between you and the bot | Nothing (encrypted end-to-end) |
+| **Best for** | Quick setup, general use | Privacy-sensitive use (wallet ops, financial data) |
+
+**Recommendation:** Use Telegram to get started quickly. Choose Signal if your agent handles sensitive data and you need E2E encryption.
+
+**If using Telegram**, create a bot now:
+
+1. Open Telegram on your phone or desktop
+2. Search for `@BotFather` (verified Telegram system account)
+3. Send `/newbot`
+4. Follow the prompts -- choose a display name and a username (must end in `bot`)
+5. BotFather replies with your bot token (a string like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
+6. Copy the token -- you'll add it to `.env` below
+
+**If using Signal**, skip this step -- Signal setup happens post-deploy on the Gateway Server.
+
+### Configure .env
+
 Edit `.env` and configure:
 
 ```
@@ -113,6 +141,9 @@ RPC_API_KEY=abc123...
 # Supported: brave, gemini, grok, kimi, perplexity
 WEB_SEARCH_PROVIDER=brave
 WEB_SEARCH_API_KEY=...
+
+# Telegram bot token (optional, only if using Telegram)
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 ```
 
 Both `CDK_AZ_PROD` and `CDK_AZ_TEST` are required. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`). The prod and test AZs **must be in different regions** to avoid collisions on account-scoped resources (Secrets Manager, IAM roles).
@@ -176,30 +207,31 @@ openclaw onboard --non-interactive --accept-risk \
   --flow quickstart --gateway-bind lan --skip-daemon
 ```
 
-#### Choose a messaging channel
+#### Configure your messaging channel
 
-Your agent needs a messaging channel so you can talk to it. OpenClaw supports both Telegram and Signal. Choose one:
+Choose **Option A** (Telegram) or **Option B** (Signal) based on the channel you picked during pre-deploy setup.
 
-| | Telegram (default) | Signal |
-|---|---|---|
-| **Setup time** | ~2 minutes | ~10-15 minutes |
-| **Extra phone number required** | No | Yes (dedicated number) |
-| **End-to-end encryption** | No -- Telegram servers can see bot messages | Yes -- messages are E2E encrypted |
-| **What the provider sees** | All messages between you and the bot | Nothing (encrypted end-to-end) |
-| **Best for** | Quick setup, general use | Privacy-sensitive use (wallet ops, financial data) |
+#### Option A: Telegram
 
-**Recommendation:** Use Telegram to get started quickly. Choose Signal if your agent handles sensitive data and you need E2E encryption.
+Configure the Telegram bot token by running `openclaw secrets configure` and following the prompts:
 
-#### Option A: Telegram (recommended)
+1. **Provider setup** -- add a new provider:
+   - Name: `telegram`
+   - Source: `exec`
+   - Command: `/usr/local/bin/aws`
+   - Args: `secretsmanager get-secret-value --secret-id openclaw/telegram-token --query SecretString --output text`
+   - passEnv: `HOME`
+   - jsonOnly: `false`
 
-Create a Telegram bot:
+2. **Credential mapping** -- select "Continue" from the provider menu, then:
+   - Select `channels.telegram.botToken` from the credential list
+   - Source: `exec`
+   - Provider: `telegram`
+   - Secret ID: `value`
 
-1. Open Telegram on your phone or desktop
-2. Search for `@BotFather` (verified Telegram system account)
-3. Send `/newbot`
-4. Follow the prompts -- choose a display name and a username (must end in `bot`)
-5. BotFather replies with your bot token (a string like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
-6. Copy the token
+3. **Apply** the plan
+
+> The Telegram bot token is stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. It never touches disk on the Gateway Server.
 
 Find your Telegram user ID (needed for the allowlist):
 
@@ -209,7 +241,7 @@ Find your Telegram user ID (needed for the allowlist):
 Configure the channel:
 
 ```bash
-openclaw channels add --channel telegram --token <BOT_TOKEN>
+openclaw channels add --channel telegram
 openclaw config set channels.telegram.dmPolicy allowlist
 openclaw config set channels.telegram.allowFrom '["<TELEGRAM_USER_ID>"]'
 openclaw config set session.dmScope per-channel-peer
@@ -345,7 +377,6 @@ openclaw agent
 
 Where:
 
-* `<BOT_TOKEN>` -- Telegram bot token from @BotFather (e.g. `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
 * `<TELEGRAM_USER_ID>` -- your Telegram numeric user ID from @userinfobot (e.g. `123456789`)
 * `<PHONE_NUMBER>` -- dedicated bot phone number in E.164 format (e.g. `+33612345678`) (Signal only)
 * `<CAPTCHA_TOKEN>` -- token from the captcha page (Signal only)

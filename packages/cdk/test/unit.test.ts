@@ -30,7 +30,7 @@ const savedEnv: Record<string, string | undefined> = {};
 
 beforeAll(() => {
   // Save and clear any existing env vars that could interfere
-  for (const key of ['LLM_PROVIDER', 'LLM_API_KEY', 'RPC_PROVIDER', 'RPC_API_KEY', 'WEB_SEARCH_PROVIDER', 'WEB_SEARCH_API_KEY']) {
+  for (const key of ['LLM_PROVIDER', 'LLM_API_KEY', 'RPC_PROVIDER', 'RPC_API_KEY', 'WEB_SEARCH_PROVIDER', 'WEB_SEARCH_API_KEY', 'TELEGRAM_BOT_TOKEN']) {
     savedEnv[key] = process.env[key];
     delete process.env[key];
   }
@@ -640,6 +640,125 @@ describe('RPC API Key Secret', () => {
     }
   });
 });
+
+// --- Telegram Bot Token Secret Tests ---
+
+describe('Telegram Bot Token Secret', () => {
+  test('Telegram secret exists with Gateway Server read access when TELEGRAM_BOT_TOKEN is set', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-token';
+    try {
+      const tmpl = createStackWithConfig();
+
+      tmpl.hasResourceProperties('AWS::SecretsManager::Secret', {
+        Name: 'openclaw/telegram-token',
+        Description: Match.stringLikeRegexp('Telegram bot token'),
+      });
+
+      // Gateway Server role should have secretsmanager actions
+      const [gatewayRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
+        (r.Properties?.Description as string)?.includes('Gateway Server'),
+      );
+      const gatewayActions = getActionsForRoleIn(tmpl, gatewayRoleId);
+      const smActions = gatewayActions.filter((a) => a.startsWith('secretsmanager:'));
+      expect(smActions.length).toBeGreaterThan(0);
+    } finally {
+      delete process.env.TELEGRAM_BOT_TOKEN;
+    }
+  });
+
+  test('Agent Server role does NOT have access to the Telegram token secret', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-token';
+    try {
+      const tmpl = createStackWithConfig();
+
+      const [agentRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
+        (r.Properties?.Description as string)?.includes('Agent Server'),
+      );
+      const [gatewayRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
+        (r.Properties?.Description as string)?.includes('Gateway Server'),
+      );
+
+      // Find the policy that grants SM access to the Gateway role (for the Telegram secret)
+      const policies = tmpl.findResources('AWS::IAM::Policy');
+      for (const [, policy] of Object.entries(policies)) {
+        const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+        // If this policy is attached to the Gateway role and has SM access, it should NOT also be on the Agent role
+        if (roles.some((r) => r.Ref === gatewayRoleId)) {
+          const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+          for (const stmt of statements) {
+            const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+            if (stmtActions.some((a: string) => a.startsWith('secretsmanager:'))) {
+              // This SM policy should not be on the Agent role
+              expect(roles.some((r) => r.Ref === agentRoleId)).toBe(false);
+            }
+          }
+        }
+      }
+    } finally {
+      delete process.env.TELEGRAM_BOT_TOKEN;
+    }
+  });
+
+  test('No Telegram secret and no Gateway SM access when TELEGRAM_BOT_TOKEN is not set', () => {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    const tmpl = createStackWithConfig();
+
+    // No telegram secret
+    const secrets = tmpl.findResources('AWS::SecretsManager::Secret');
+    const telegramSecrets = Object.values(secrets).filter(
+      (s) => (s.Properties?.Name as string) === 'openclaw/telegram-token',
+    );
+    expect(telegramSecrets).toHaveLength(0);
+
+    // Gateway role has no actions
+    const [gatewayRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
+      (r.Properties?.Description as string)?.includes('Gateway Server'),
+    );
+    const actions = getActionsForRoleIn(tmpl, gatewayRoleId);
+    expect(actions).toEqual([]);
+  });
+
+  test('Secret count is 5 when TELEGRAM_BOT_TOKEN is set (LLM + RPC + Web + gateway-token + telegram)', () => {
+    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-token';
+    try {
+      const tmpl = createStackWithConfig();
+      tmpl.resourceCountIs('AWS::SecretsManager::Secret', 5);
+    } finally {
+      delete process.env.TELEGRAM_BOT_TOKEN;
+    }
+  });
+});
+
+/** Find a resource in a specific template (for per-test templates). */
+function findResourceIn(
+  tmpl: Template,
+  type: string,
+  predicate: (logicalId: string, resource: CfnResource) => boolean,
+): [string, CfnResource] {
+  const resources = tmpl.findResources(type);
+  const match = Object.entries(resources).find(([id, r]) => predicate(id, r));
+  if (!match) throw new Error(`No ${type} matched predicate`);
+  return match;
+}
+
+/** Get all IAM actions for a role in a specific template (for per-test templates). */
+function getActionsForRoleIn(tmpl: Template, roleLogicalId: string): string[] {
+  const policies = tmpl.findResources('AWS::IAM::Policy');
+  const actions: string[] = [];
+
+  for (const [, policy] of Object.entries(policies)) {
+    const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+    if (!roles.some((r) => r.Ref === roleLogicalId)) continue;
+
+    const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+    for (const stmt of statements) {
+      const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+      actions.push(...(stmtActions as string[]));
+    }
+  }
+
+  return actions;
+}
 
 // --- LLM Provider Validation Tests ---
 
