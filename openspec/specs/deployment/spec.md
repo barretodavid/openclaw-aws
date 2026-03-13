@@ -471,3 +471,31 @@ The CDK stack SHALL create a Secrets Manager secret for the gateway authenticati
 
 - **WHEN** the Gateway Server IAM role is evaluated
 - **THEN** it SHALL NOT have access to the `openclaw/gateway-token` secret
+
+### Requirement: CDK README Accurately Describes Current Architecture
+
+The `packages/cdk/README.md` SHALL document only the components that exist in the current CDK stack. It MUST NOT reference the proxy server, proxy-related security groups, subdomain-based routing, SSM proxy config parameters, or per-provider DNS records.
+
+#### Scenario: Components table matches deployed infrastructure
+- **WHEN** an operator reads the components table in `packages/cdk/README.md`
+- **THEN** it SHALL list only: Agent Server, Gateway Server, Remote Access (SSM), Wallet Key (KMS), API Key Secrets (Secrets Manager), and Private DNS (Route 53)
+
+#### Scenario: Security boundaries reflect two-server architecture
+- **WHEN** an operator reads the security boundaries section
+- **THEN** it SHALL describe two IAM roles (Agent Server and Gateway Server) with no proxy server references
+
+### Requirement: Secret Rotation Documentation
+
+The `packages/cdk/README.md` SHALL include a "Rotate an API key" section that lists all secret names, documents the rotation command, and warns about the CDK overwrite behavior.
+
+#### Scenario: All secret names are listed
+- **WHEN** an operator reads the rotation section
+- **THEN** it SHALL list `openclaw/llm-api-key`, `openclaw/rpc-api-key`, `openclaw/web-search-api-key`, and `openclaw/gateway-token`
+
+#### Scenario: No-restart behavior is documented
+- **WHEN** an operator reads the rotation section
+- **THEN** it SHALL state that the agent picks up rotated secrets immediately with no restart required (because OpenClaw fetches from Secrets Manager on every use via the exec provider)
+
+#### Scenario: CDK overwrite warning is present
+- **WHEN** an operator reads the rotation section
+- **THEN** it SHALL warn that `.env` must also be updated, otherwise the next `cdk deploy` will revert the secret to the old value
