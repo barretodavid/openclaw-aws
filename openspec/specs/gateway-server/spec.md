@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Gateway SHALL provide Signal and Telegram channel integrations for the OpenClaw agent, accepting WebSocket connections on port 18789.
+The Gateway SHALL provide Signal, Telegram, and WhatsApp channel integrations for the OpenClaw agent, accepting WebSocket connections on port 18789.
 
 ## Requirements
 
@@ -22,6 +22,14 @@ The Gateway SHALL be provisioned with tools for messaging channel integrations a
 - **GIVEN** the Gateway instance
 - **THEN** Telegram SHALL require no additional binary dependencies beyond Node.js and OpenClaw
 - **AND** Telegram channel configuration SHALL be performed post-deployment via the OpenClaw CLI
+
+#### Scenario: WhatsApp support
+
+- **GIVEN** the Gateway instance
+- **THEN** WhatsApp SHALL require no additional binary dependencies beyond Node.js and OpenClaw
+- **AND** WhatsApp channel configuration SHALL be performed post-deployment via the OpenClaw CLI
+- **AND** WhatsApp session credentials (Baileys auth) SHALL be stored locally on the Gateway Server at `~/.openclaw/credentials/whatsapp/`
+- **AND** WhatsApp session credentials SHALL NOT survive instance replacement (redeployment requires re-scanning the QR code)
 
 #### Scenario: No unnecessary software
 
@@ -43,7 +51,7 @@ The Gateway SHALL accept authenticated WebSocket connections from the Agent on a
 
 ### Requirement: Isolation
 
-The Gateway SHALL have no access to wallet signing. When Telegram is configured, the Gateway SHALL have scoped Secrets Manager read access for its bot token only.
+The Gateway SHALL have no access to wallet signing. When Telegram is configured, the Gateway SHALL have scoped Secrets Manager read access for its bot token only. WhatsApp SHALL NOT require any Secrets Manager access.
 
 #### Scenario: Minimal permissions
 
@@ -63,6 +71,13 @@ The Gateway SHALL have no access to wallet signing. When Telegram is configured,
 - **GIVEN** the Gateway IAM role
 - **WHEN** `TELEGRAM_BOT_TOKEN` is not set in `.env`
 - **THEN** it SHALL NOT have any Secrets Manager permissions
+
+#### Scenario: WhatsApp requires no Secrets Manager access
+
+- **GIVEN** the Gateway IAM role
+- **WHEN** WhatsApp is configured as a channel
+- **THEN** no additional Secrets Manager permissions SHALL be required
+- **AND** the Gateway IAM role SHALL NOT change regardless of whether WhatsApp is configured
 
 ### Requirement: Default Instance Sizing
 

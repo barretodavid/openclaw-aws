@@ -397,9 +397,20 @@ The root README.md SHALL include an "OpenClaw Setup" section documenting the CLI
 #### Scenario: Pre-deploy channel choice
 
 - **WHEN** a user reads the pre-deploy prerequisites
-- **THEN** the documentation SHALL include a channel comparison table (Telegram vs Signal) before the `.env` configuration section
+- **THEN** the documentation SHALL include a channel comparison table (Telegram / WhatsApp / Signal) with Low/Medium/High ratings for: setup difficulty, setup cost, maintenance, privacy, user familiarity, and survives redeploy
+- **AND** the table SHALL be followed by per-cell justifications explaining each rating
+- **AND** it SHALL include a recommendation: Telegram for quick start with no hardware, WhatsApp for E2E encryption with easy setup, Signal for maximum privacy with no ongoing device maintenance
 - **AND** it SHALL instruct Telegram users to create a bot via BotFather and add the token to `.env` as `TELEGRAM_BOT_TOKEN`
-- **AND** it SHALL note that Signal users can skip this step (Signal setup is post-deploy)
+- **AND** it SHALL note that WhatsApp and Signal users can skip `.env` changes (their setup is post-deploy)
+
+#### Scenario: SIM card guidance
+
+- **WHEN** a user reads the pre-deploy prerequisites for WhatsApp or Signal
+- **THEN** the documentation SHALL include a shared "Choosing a SIM card" section
+- **AND** it SHALL present two options: long-term SIM (recommended) and prepaid/travel SIM (budget option)
+- **AND** it SHALL note that the SIM must support SMS for initial activation/registration
+- **AND** it SHALL explain the number recycling risk: agent goes offline (availability risk), but no one gains control of the agent (not a security risk)
+- **AND** it SHALL explain recovery steps: get a new SIM, re-link or re-register on the Gateway Server, update the allowlist
 
 #### Scenario: Gateway Server login
 
@@ -413,19 +424,45 @@ The root README.md SHALL include an "OpenClaw Setup" section documenting the CLI
 - **AND** it SHALL document registering a dedicated phone number with `signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"`
 - **AND** it SHALL document verifying the registration with `signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>`
 
+#### Scenario: Gateway Server WhatsApp linking
+
+- **WHEN** a user configures WhatsApp on the Gateway Server
+- **THEN** it SHALL document running `openclaw channels login --channel whatsapp --verbose` to display an ASCII QR code in the terminal
+- **AND** it SHALL instruct scanning the QR code with WhatsApp on the dedicated phone (WhatsApp > Linked Devices > Link a Device)
+
 #### Scenario: Gateway Server onboard via wizard
 
 - **WHEN** a user configures the Gateway Server
 - **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --flow quickstart --gateway-bind lan --skip-daemon` on the Gateway Server
-- **AND** it SHALL instruct adding the Signal channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
+
+#### Scenario: Gateway Server channel configuration (Signal)
+
+- **WHEN** a user configures Signal on the Gateway Server
+- **THEN** it SHALL instruct adding the Signal channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
 - **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.signal.dmPolicy allowlist`
 - **AND** it SHALL instruct adding the owner's phone number to the allowlist with `openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
 - **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
 
-#### Scenario: Gateway Server Telegram secret configuration
+#### Scenario: Gateway Server channel configuration (WhatsApp)
+
+- **WHEN** a user configures WhatsApp on the Gateway Server
+- **THEN** it SHALL instruct adding the WhatsApp channel with `openclaw channels add --channel whatsapp`
+- **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.whatsapp.dmPolicy '"allowlist"'`
+- **AND** it SHALL instruct adding the owner's phone number to the allowlist with `openclaw config set channels.whatsapp.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
+- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope '"per-channel-peer"'`
+
+#### Scenario: Gateway Server channel configuration (Telegram)
 
 - **WHEN** a user configures Telegram on the Gateway Server
 - **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider with args `secretsmanager get-secret-value --secret-id ${agentName}/telegram-token --query SecretString --output text`
+
+#### Scenario: WhatsApp dedicated phone number explanation
+
+- **WHEN** a user reads the WhatsApp setup instructions
+- **THEN** the documentation SHALL include a "Why a dedicated phone number?" section
+- **AND** it SHALL explain that WhatsApp uses a linked device model where the Gateway Server is a companion device with full protocol-level read/write access to the account
+- **AND** it SHALL explain that OpenClaw's `dmPolicy` restricts access at the application layer, not the protocol layer
+- **AND** it SHALL recommend a dedicated phone number so that even if the policy is misconfigured, the agent can only reach contacts of the dedicated number
 
 #### Scenario: Gateway Server token export
 

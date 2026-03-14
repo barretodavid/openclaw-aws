@@ -27,6 +27,7 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 - **AND** it SHALL NOT have KMS permissions
 - **AND** when `TELEGRAM_BOT_TOKEN` is set in `.env`, it SHALL have Secrets Manager read access scoped to the `${agentName}/telegram-token` secret only
 - **AND** when `TELEGRAM_BOT_TOKEN` is not set in `.env`, it SHALL NOT have any Secrets Manager permissions
+- **AND** WhatsApp channel configuration SHALL NOT require any changes to the Gateway IAM role (session data is local-only)
 
 ### Requirement: No Public Inbound Traffic
 

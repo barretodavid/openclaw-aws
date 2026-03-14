@@ -14,7 +14,7 @@ graph LR
         GatewayEC2["Gateway Server<br/>(EC2 t3a.small)"]
         AgentEC2 -->|"WebSocket<br/>(ws://gateway.&lt;AGENT_NAME&gt;.vpc:18789)"| GatewayEC2
     end
-    GatewayEC2 -->|"channel messages"| Channels["Signal / Telegram<br/>/ other channels"]
+    GatewayEC2 -->|"channel messages"| Channels["Telegram / WhatsApp<br/>/ Signal"]
     AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, gateway token, Telegram token)"]
     GatewayEC2 -->|"reads Telegram token"| SM
     AgentEC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
@@ -97,17 +97,86 @@ cp .env.example .env
 
 ### Choose a messaging channel
 
-Your agent needs a messaging channel so you can talk to it. OpenClaw supports both Telegram and Signal. Choose one before deploying:
+Your agent needs a messaging channel so you can talk to it. OpenClaw supports Telegram, WhatsApp, and Signal. Choose one before deploying:
 
-| | Telegram (default) | Signal |
-|---|---|---|
-| **Setup time** | ~2 minutes | ~10-15 minutes |
-| **Extra phone number required** | No | Yes (dedicated number) |
-| **End-to-end encryption** | No -- Telegram servers can see bot messages | Yes -- messages are E2E encrypted |
-| **What the provider sees** | All messages between you and the bot | Nothing (encrypted end-to-end) |
-| **Best for** | Quick setup, general use | Privacy-sensitive use (wallet ops, financial data) |
+| Property | Telegram | WhatsApp | Signal |
+|---|---|---|---|
+| **Setup difficulty** | Low | Medium | High |
+| **Setup cost** | Low | High | Medium |
+| **Maintenance** | Low | Medium | Low |
+| **Privacy** | Low | High | Very High |
+| **User familiarity** | Medium | High | Low |
+| **Survives redeploy** | Yes | No | No |
 
-**Recommendation:** Use Telegram to get started quickly. Choose Signal if your agent handles sensitive data and you need E2E encryption.
+**Setup difficulty** -- what's involved in getting the channel running
+
+- **Telegram: Low** -- Create a bot via @BotFather, copy the token, paste it into `.env`. No phone, no binary, no registration ceremony.
+- **WhatsApp: Medium** -- Install WhatsApp on a dedicated phone, then scan a QR code from the Gateway Server terminal. Straightforward but requires a physical device nearby during setup.
+- **Signal: High** -- Solve a CAPTCHA in a browser, register the phone number via signal-cli, wait for an SMS code, verify it. Multiple steps across multiple tools.
+
+**Setup cost** -- hardware and services you need to acquire
+
+- **Telegram: Low** -- Nothing beyond the AWS infrastructure you're already deploying.
+- **WhatsApp: High** -- Dedicated phone + SIM card, and the phone must remain powered and connected permanently (it's ongoing infrastructure, not a one-time purchase).
+- **Signal: Medium** -- Dedicated phone + SIM card for registration only. After verification the phone can be put away -- signal-cli runs independently on the Gateway Server.
+
+**Maintenance** -- ongoing effort to keep the channel working
+
+- **Telegram: Low** -- Bot token is stored in Secrets Manager. Nothing to maintain.
+- **WhatsApp: Medium** -- The dedicated phone must connect to the internet at least once every 14 days or WhatsApp unlinks the session. If it drops, you must re-scan the QR code via SSM.
+- **Signal: Low** -- signal-cli manages its own keys on the Gateway Server. No phone keepalive required.
+
+**Privacy** -- what third parties can see
+
+- **Telegram: Low** -- No E2E encryption. Telegram's servers can read all messages between you and the bot.
+- **WhatsApp: High** -- E2E encrypted (messages are unreadable to WhatsApp/Meta). However, Meta collects metadata: who you message, when, and how often.
+- **Signal: Very High** -- E2E encrypted and minimal metadata collection. Signal's servers know almost nothing about your usage patterns.
+
+**User familiarity** -- how likely your audience already knows the app
+
+- **Telegram: Medium** -- Popular in tech and crypto communities, less common with the general public.
+- **WhatsApp: High** -- ~2 billion users worldwide. Most people already have it installed and use it daily.
+- **Signal: Low** -- Niche adoption, mostly among privacy-conscious users. Most people would need to install it for the first time.
+
+**Survives redeploy** -- whether destroying and redeploying the Gateway Server preserves the channel session
+
+- **Telegram: Yes** -- The bot token is stored in AWS Secrets Manager, not on the instance. A fresh Gateway Server can retrieve it immediately.
+- **WhatsApp: No** -- The Baileys session credentials are stored locally on the Gateway Server. Redeployment requires re-scanning the QR code.
+- **Signal: No** -- signal-cli keys are stored locally on the Gateway Server. Redeployment requires re-registering the phone number.
+
+**Recommendation:** **Telegram** to get started quickly with no hardware. **WhatsApp** for E2E encryption with easy setup (requires a dedicated phone). **Signal** for maximum privacy with no ongoing device maintenance.
+
+### Choosing a SIM card (WhatsApp and Signal)
+
+Both WhatsApp and Signal require a dedicated phone number. You need a SIM card that can receive SMS for the initial activation (WhatsApp) or registration (Signal). After that, SMS is only needed if re-verification is triggered (e.g., reinstalling the app or switching devices).
+
+**Option 1: Long-term SIM (recommended)**
+
+A monthly plan or long-term prepaid SIM that auto-renews.
+
+- Number stays yours indefinitely
+- Re-verification always works
+- Higher cost, may require identity verification depending on country
+
+**Option 2: Prepaid / travel SIM (budget option)**
+
+A cheap prepaid or travel SIM card. Must support SMS -- some data-only or traveler SIMs do not.
+
+- Cheap, easy to get, often no identity verification needed
+- Works fine initially -- both WhatsApp and Signal only need SMS once for activation/registration
+- After activation, WhatsApp only needs internet (Wi-Fi is fine) and Signal doesn't need the phone at all
+- **Risk: the number expires and eventually gets recycled by the carrier.** The timeline depends on the carrier -- some recycle after 30 days of inactivity, some after 90. Your agent keeps working during this window (WhatsApp/Signal don't know the SIM expired), but you're vulnerable to number recycling at any time
+- **Mitigation:** some prepaid carriers let you extend the number with a small top-up before expiry
+
+**What happens if the number gets recycled?**
+
+If your number gets reassigned to someone else and they register WhatsApp or Signal on it:
+
+- **Your agent goes offline.** The old session (Baileys for WhatsApp, signal-cli for Signal) gets invalidated by the platform's servers.
+- **No one gains control of your agent.** The new owner gets a fresh account with no chat history, no linked devices, and no access to your Gateway Server. Linking to the Gateway requires SSM access to scan a QR code (WhatsApp) or run registration commands (Signal).
+- **Recovery:** get a new SIM, activate with the new number, re-link or re-register on the Gateway Server, and update the allowlist.
+
+Number recycling is an availability risk (agent goes offline), not a security risk (no one gains control). If your agent going offline and needing a number change is acceptable, a prepaid SIM is fine. If you need reliability, use a long-term SIM.
 
 **If using Telegram**, create a bot now:
 
@@ -117,6 +186,13 @@ Your agent needs a messaging channel so you can talk to it. OpenClaw supports bo
 4. Follow the prompts -- choose a display name and a username (must end in `bot`)
 5. BotFather replies with your bot token (a string like `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`)
 6. Copy the token -- you'll add it to `.env` below
+
+**If using WhatsApp**, prepare a dedicated phone now:
+
+1. Get a dedicated phone and SIM card (see [Choosing a SIM card](#choosing-a-sim-card-whatsapp-and-signal) above for options). The SIM must support SMS -- you need it to activate WhatsApp.
+2. Install WhatsApp on the phone and activate it with the dedicated number (requires receiving an SMS verification code).
+3. Keep the phone powered and connected to Wi-Fi -- it must stay online permanently. After activation, WhatsApp only needs internet (not SMS), so Wi-Fi is sufficient for day-to-day use. However, retain the ability to receive SMS on the registered number in case WhatsApp ever requires re-verification (e.g., after reinstalling the app).
+4. No `.env` changes needed -- WhatsApp has no pre-deploy token.
 
 **If using Signal**, skip this step -- Signal setup happens post-deploy on the Gateway Server.
 
@@ -211,7 +287,7 @@ openclaw onboard --non-interactive --accept-risk \
 
 #### Configure your messaging channel
 
-Choose **Option A** (Telegram) or **Option B** (Signal) based on the channel you picked during pre-deploy setup.
+Choose **Option A** (Telegram), **Option B** (WhatsApp), or **Option C** (Signal) based on the channel you picked during pre-deploy setup.
 
 #### Option A: Telegram
 
@@ -249,9 +325,30 @@ openclaw config set channels.telegram.allowFrom '["<TELEGRAM_USER_ID>"]'
 openclaw config set session.dmScope per-channel-peer
 ```
 
-#### Option B: Signal (E2E encrypted alternative)
+#### Option B: WhatsApp (E2E encrypted, easy setup)
 
-Signal requires a **dedicated phone number** -- you cannot reuse your personal Signal number. You will need a spare SIM card or VoIP number.
+Link WhatsApp by scanning a QR code:
+
+```bash
+openclaw channels login --channel whatsapp --verbose
+```
+
+A QR code renders as ASCII in the terminal. Scan it with WhatsApp on the dedicated phone (WhatsApp > Linked Devices > Link a Device).
+
+Configure the channel:
+
+```bash
+openclaw channels add --channel whatsapp
+openclaw config set channels.whatsapp.dmPolicy '"allowlist"'
+openclaw config set channels.whatsapp.allowFrom '["<OWNER_PHONE_NUMBER>"]'
+openclaw config set session.dmScope '"per-channel-peer"'
+```
+
+> **Why a dedicated phone number?** WhatsApp uses a "linked device" model. Unlike Telegram (where a bot is a separate identity) or Signal (where signal-cli owns the account), WhatsApp always has a primary device -- the phone. The Gateway Server connects as a companion device. At the protocol level, any linked device has full read/write access to the WhatsApp account -- it can see all messages and send to any contact. OpenClaw's `dmPolicy` layer restricts this at the application level, but the protection is software-based, not protocol-based. Using a dedicated phone number means that even if the policy is misconfigured or bypassed, the agent can only reach contacts of the dedicated number (which should have none), not your personal contacts.
+
+#### Option C: Signal (maximum privacy)
+
+Signal requires a **dedicated phone number** -- you cannot reuse your personal Signal number. You will need a spare SIM card or VoIP number (see [Choosing a SIM card](#choosing-a-sim-card-whatsapp-and-signal)).
 
 Open this [link](https://signalcaptchas.org/registration/generate.html) in your browser to resolve Signal's CAPTCHA, copy the token and register:
 
@@ -383,5 +480,5 @@ Where:
 * `<PHONE_NUMBER>` -- dedicated bot phone number in E.164 format (e.g. `+33612345678`) (Signal only)
 * `<CAPTCHA_TOKEN>` -- token from the captcha page (Signal only)
 * `<SMS_CODE>` -- verification code received via SMS (Signal only)
-* `<OWNER_PHONE_NUMBER>` -- your personal phone number (the only number allowed to message the bot) (Signal only)
+* `<OWNER_PHONE_NUMBER>` -- your personal phone number (the only number allowed to message the bot) (WhatsApp and Signal)
 * `<GATEWAY_TOKEN>` -- auto-generated token from `openclaw config get gateway.auth.token` on the Gateway Server
