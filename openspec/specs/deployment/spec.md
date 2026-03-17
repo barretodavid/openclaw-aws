@@ -392,129 +392,93 @@ The project SHALL provide login commands that start interactive SSM sessions to 
 
 ### Requirement: Post-Deployment Setup Documentation
 
-The root README.md SHALL include an "OpenClaw Setup" section documenting the CLI-only steps to configure and start OpenClaw after deployment. Secret IDs in all commands SHALL use `${agentName}/` prefix instead of `openclaw/`. Gateway WebSocket URL SHALL use `gateway.${agentName}.vpc`.
+The project SHALL include an OPENCLAW.md file at the root documenting the CLI-only steps to configure and start OpenClaw after deployment. The root README.md SHALL link to OPENCLAW.md instead of inlining the setup steps. Secret IDs in all commands SHALL use `${agentName}/` prefix. Gateway WebSocket URL SHALL use `gateway.${agentName}.vpc`. OPENCLAW.md SHALL document two access modes: single user (allowlist) and multi user (open).
 
-#### Scenario: Pre-deploy channel choice
+#### Scenario: README.md links to OPENCLAW.md
 
-- **WHEN** a user reads the pre-deploy prerequisites
-- **THEN** the documentation SHALL include a channel comparison table (Telegram / WhatsApp / Signal) with Low/Medium/High ratings for: setup difficulty, setup cost, maintenance, privacy, user familiarity, and survives redeploy
-- **AND** the table SHALL be followed by per-cell justifications explaining each rating
-- **AND** it SHALL include a recommendation: Telegram for quick start with no hardware, WhatsApp for E2E encryption with easy setup, Signal for maximum privacy with no ongoing device maintenance
-- **AND** it SHALL instruct Telegram users to create a bot via BotFather and add the token to `.env` as `TELEGRAM_BOT_TOKEN`
-- **AND** it SHALL note that WhatsApp and Signal users can skip `.env` changes (their setup is post-deploy)
+- **WHEN** a user reads the root README.md
+- **THEN** the "OpenClaw Setup" section SHALL contain only a link to OPENCLAW.md for post-deployment configuration
+- **AND** it SHALL NOT inline any `openclaw` CLI commands
 
-#### Scenario: SIM card guidance
+#### Scenario: Pre-deploy channel choice remains in README.md
 
-- **WHEN** a user reads the pre-deploy prerequisites for WhatsApp or Signal
-- **THEN** the documentation SHALL include a shared "Choosing a SIM card" section
-- **AND** it SHALL present two options: long-term SIM (recommended) and prepaid/travel SIM (budget option)
-- **AND** it SHALL note that the SIM must support SMS for initial activation/registration
-- **AND** it SHALL explain the number recycling risk: agent goes offline (availability risk), but no one gains control of the agent (not a security risk)
-- **AND** it SHALL explain recovery steps: get a new SIM, re-link or re-register on the Gateway Server, update the allowlist
+- **WHEN** a user reads the pre-deploy prerequisites in README.md
+- **THEN** the documentation SHALL still include the channel comparison table (Telegram / WhatsApp / Signal) with ratings for setup difficulty, setup cost, maintenance, privacy, user familiarity, and survives redeploy
+- **AND** it SHALL still include pre-deploy channel preparation steps (BotFather for Telegram, dedicated phone for WhatsApp, skip for Signal)
+- **AND** the SIM card guidance section SHALL remain in README.md
 
-#### Scenario: Gateway Server login
+#### Scenario: OPENCLAW.md Gateway Server login and onboard
 
-- **WHEN** a user begins Gateway Server setup
-- **THEN** the documentation SHALL instruct logging in with `pnpm run login:gateway`
+- **WHEN** a user reads OPENCLAW.md
+- **THEN** it SHALL instruct logging in with `pnpm run login:gateway`
+- **AND** it SHALL instruct running `openclaw onboard --non-interactive --accept-risk --flow quickstart --gateway-bind lan --skip-daemon` on the Gateway Server
 
-#### Scenario: Gateway Server Signal registration
+#### Scenario: OPENCLAW.md channel setup (Telegram)
 
-- **WHEN** a user configures Signal on the Gateway Server
-- **THEN** it SHALL document obtaining a captcha token from a laptop browser
-- **AND** it SHALL document registering a dedicated phone number with `signal-cli -u <PHONE_NUMBER> register --captcha "<CAPTCHA_TOKEN>"`
-- **AND** it SHALL document verifying the registration with `signal-cli -u <PHONE_NUMBER> verify <SMS_CODE>`
+- **WHEN** a user configures Telegram in OPENCLAW.md
+- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider fetching from `${agentName}/telegram-token`
+- **AND** it SHALL instruct adding the channel with `openclaw channels add --channel telegram`
+- **AND** it SHALL NOT include `dmPolicy` or `allowFrom` configuration (access control is a separate section)
 
-#### Scenario: Gateway Server WhatsApp linking
+#### Scenario: OPENCLAW.md channel setup (WhatsApp)
 
-- **WHEN** a user configures WhatsApp on the Gateway Server
-- **THEN** it SHALL document running `openclaw channels login --channel whatsapp --verbose` to display an ASCII QR code in the terminal
-- **AND** it SHALL instruct scanning the QR code with WhatsApp on the dedicated phone (WhatsApp > Linked Devices > Link a Device)
+- **WHEN** a user configures WhatsApp in OPENCLAW.md
+- **THEN** it SHALL document running `openclaw channels login --channel whatsapp --verbose` to display the QR code
+- **AND** it SHALL instruct adding the channel with `openclaw channels add --channel whatsapp`
+- **AND** it SHALL include the "Why a dedicated phone number?" explanation
+- **AND** it SHALL NOT include `dmPolicy` or `allowFrom` configuration
 
-#### Scenario: Gateway Server onboard via wizard
+#### Scenario: OPENCLAW.md channel setup (Signal)
 
-- **WHEN** a user configures the Gateway Server
-- **THEN** the documentation SHALL instruct running `openclaw onboard --non-interactive --accept-risk --flow quickstart --gateway-bind lan --skip-daemon` on the Gateway Server
+- **WHEN** a user configures Signal in OPENCLAW.md
+- **THEN** it SHALL document the captcha, registration, and verification steps
+- **AND** it SHALL instruct adding the channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
+- **AND** it SHALL NOT include `dmPolicy` or `allowFrom` configuration
 
-#### Scenario: Gateway Server channel configuration (Signal)
+#### Scenario: OPENCLAW.md access mode -- single user
 
-- **WHEN** a user configures Signal on the Gateway Server
-- **THEN** it SHALL instruct adding the Signal channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
-- **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.signal.dmPolicy allowlist`
-- **AND** it SHALL instruct adding the owner's phone number to the allowlist with `openclaw config set channels.signal.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
-- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope per-channel-peer`
+- **WHEN** a user configures single user access in OPENCLAW.md
+- **THEN** it SHALL instruct setting `dmPolicy` to `allowlist` for the configured channel
+- **AND** it SHALL instruct setting `allowFrom` to a JSON array with the single sender ID
+- **AND** it SHALL instruct setting `session.dmScope` to `per-channel-peer`
+- **AND** it SHALL explain how to find the sender ID (e.g., @userinfobot for Telegram, phone number for WhatsApp/Signal)
 
-#### Scenario: Gateway Server channel configuration (WhatsApp)
+#### Scenario: OPENCLAW.md access mode -- multi user open
 
-- **WHEN** a user configures WhatsApp on the Gateway Server
-- **THEN** it SHALL instruct adding the WhatsApp channel with `openclaw channels add --channel whatsapp`
-- **AND** it SHALL instruct configuring the DM policy to allowlist with `openclaw config set channels.whatsapp.dmPolicy '"allowlist"'`
-- **AND** it SHALL instruct adding the owner's phone number to the allowlist with `openclaw config set channels.whatsapp.allowFrom '["<OWNER_PHONE_NUMBER>"]'`
-- **AND** it SHALL instruct setting session isolation with `openclaw config set session.dmScope '"per-channel-peer"'`
+- **WHEN** a user configures multi user open access in OPENCLAW.md
+- **THEN** it SHALL instruct setting `dmPolicy` to `open` for the configured channel
+- **AND** it SHALL instruct setting `allowFrom` to `["*"]`
+- **AND** it SHALL instruct setting `session.dmScope` to `per-channel-peer`
+- **AND** it SHALL note that this mode is intended for demos and presentations
+- **AND** it SHALL warn that anyone who can reach the bot can interact with it
+- **AND** it SHALL recommend not configuring wallet or crypto operations in this mode
 
-#### Scenario: Gateway Server channel configuration (Telegram)
+#### Scenario: OPENCLAW.md gateway token and service
 
-- **WHEN** a user configures Telegram on the Gateway Server
-- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider with args `secretsmanager get-secret-value --secret-id ${agentName}/telegram-token --query SecretString --output text`
-
-#### Scenario: WhatsApp dedicated phone number explanation
-
-- **WHEN** a user reads the WhatsApp setup instructions
-- **THEN** the documentation SHALL include a "Why a dedicated phone number?" section
-- **AND** it SHALL explain that WhatsApp uses a linked device model where the Gateway Server is a companion device with full protocol-level read/write access to the account
-- **AND** it SHALL explain that OpenClaw's `dmPolicy` restricts access at the application layer, not the protocol layer
-- **AND** it SHALL recommend a dedicated phone number so that even if the policy is misconfigured, the agent can only reach contacts of the dedicated number
-
-#### Scenario: Gateway Server token export
-
-- **WHEN** a user has completed Gateway Server onboard
+- **WHEN** a user completes Gateway Server setup in OPENCLAW.md
 - **THEN** it SHALL instruct storing the token in Secrets Manager with `aws secretsmanager put-secret-value --secret-id ${agentName}/gateway-token --secret-string "<GATEWAY_TOKEN>"`
+- **AND** it SHALL document installing, starting, and enabling the gateway service
 
-#### Scenario: Gateway Server service management
+#### Scenario: OPENCLAW.md Agent Server setup
 
-- **WHEN** a user starts the gateway service
-- **THEN** it SHALL document installing and starting the gateway service with `openclaw gateway install` and `openclaw gateway start`
-- **AND** it SHALL document enabling the gateway service on boot with `systemctl --user enable openclaw-gateway.service`
+- **WHEN** a user reads the Agent Server section in OPENCLAW.md
+- **THEN** it SHALL instruct logging in with `pnpm run login:agent`
+- **AND** it SHALL instruct running `openclaw onboard` with remote mode connecting to `ws://gateway.${agentName}.vpc:18789`
+- **AND** it SHALL instruct setting the image model and fallback model
+- **AND** it SHALL instruct starting the agent with `openclaw agent`
 
-#### Scenario: Agent Server login
+#### Scenario: OPENCLAW.md condensed secrets configuration
 
-- **WHEN** a user begins Agent Server setup
-- **THEN** the documentation SHALL instruct logging in with `pnpm run login:agent`
+- **WHEN** a user configures secrets on the Agent Server in OPENCLAW.md
+- **THEN** it SHALL document all three secrets (LLM API key, gateway token, web search API key) using `openclaw secrets configure`
+- **AND** it SHALL provide one fully expanded example showing the complete wizard flow (provider setup, credential mapping, apply)
+- **AND** the remaining secrets SHALL use a condensed format (table or summary) showing: provider name, AWS CLI args, and credential path
+- **AND** each secret SHALL specify the exec command as `/usr/local/bin/aws` with `passEnv: HOME`
 
-#### Scenario: Agent Server setup via wizard
+#### Scenario: OPENCLAW.md variable placeholders
 
-- **WHEN** a user configures OpenClaw on the Agent Server
-- **THEN** the documentation SHALL instruct running `openclaw onboard` with appropriate flags for remote mode connecting to `ws://gateway.${agentName}.vpc:18789`
-
-#### Scenario: Agent Server gateway token configuration
-
-- **WHEN** a user configures the gateway token on the Agent Server
-- **THEN** it SHALL document running `openclaw secrets configure` with args `secretsmanager get-secret-value --secret-id ${agentName}/gateway-token --query SecretString --output text`
-
-#### Scenario: Agent Server model configuration
-
-- **WHEN** a user configures models on the Agent Server
-- **THEN** it SHALL instruct setting the image model with `openclaw models set-image venice/kimi-k2-5`
-- **AND** it SHALL instruct setting the fallback model with `openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'`
-
-#### Scenario: Agent Server web search configuration
-
-- **WHEN** a user configures web search on the Agent Server
-- **THEN** it SHALL document running `openclaw secrets configure` with args `secretsmanager get-secret-value --secret-id ${agentName}/web-search-api-key --query SecretString --output text`
-
-#### Scenario: Agent Server LLM secret configuration
-
-- **WHEN** a user configures the LLM secret on the Agent Server
-- **THEN** it SHALL document running `openclaw secrets configure` with args `secretsmanager get-secret-value --secret-id ${agentName}/llm-api-key --query SecretString --output text`
-
-#### Scenario: Agent Server start
-
-- **WHEN** a user starts the agent
-- **THEN** it SHALL document starting the agent with `openclaw agent`
-
-#### Scenario: Variable placeholders
-
-- **WHEN** a command contains user-specific values
-- **THEN** the documentation SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`, `<GATEWAY_TOKEN>`, `<TELEGRAM_USER_ID>`)
+- **WHEN** a command in OPENCLAW.md contains user-specific values
+- **THEN** it SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`, `<GATEWAY_TOKEN>`, `<TELEGRAM_USER_ID>`)
 - **AND** it SHALL define each placeholder with a brief description
 - **AND** it SHALL NOT use placeholders for LLM provider, model, or API key values (these SHALL use concrete Venice values)
 - **AND** it SHALL NOT use placeholders for web search provider values (these SHALL use concrete Brave values)
