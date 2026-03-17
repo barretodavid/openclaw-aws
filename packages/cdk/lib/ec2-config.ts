@@ -49,12 +49,12 @@ export const WEB_SEARCH_PROVIDERS: Record<string, { domain: string }> = {
 
 // --- Ubuntu User Data ---
 
-/** Shared Ubuntu 24.04 user data: Node.js 22, AWS CLI v2, unattended-upgrades with auto-reboot. */
+/** Shared Ubuntu 24.04 user data: Node.js 24, AWS CLI v2, unattended-upgrades with auto-reboot. */
 export function ubuntuBaseUserData(extraAptPackages: string[] = []): string[] {
   const aptPackages = [...extraAptPackages, 'unzip', 'nodejs', 'unattended-upgrades'].join(' ');
   return [
     'apt-get update -y',
-    'curl -fsSL https://deb.nodesource.com/setup_22.x | bash -',
+    'curl -fsSL https://deb.nodesource.com/setup_24.x | bash -',
     `apt-get install -y ${aptPackages}`,
     // AWS CLI v2 (official installer)
     'curl -fsSL -o /tmp/awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip',

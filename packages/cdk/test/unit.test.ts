@@ -857,7 +857,7 @@ describe('Agent Machine Configuration', () => {
     const userData = getAgentUserData(tmpl, 't3a.large');
 
     expect(userData).toContain('apt-get update -y');
-    expect(userData).toContain('deb.nodesource.com/setup_22.x');
+    expect(userData).toContain('deb.nodesource.com/setup_24.x');
     expect(userData).toContain('apt-get install -y docker.io unzip nodejs');
     expect(userData).toContain('awscli-exe-linux-x86_64.zip');
     expect(userData).toContain('usermod -aG docker ubuntu');
