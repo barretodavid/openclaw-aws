@@ -11,9 +11,10 @@ graph LR
         EC2["Agent Server<br/>(EC2 t3a.xlarge)"]
     end
     EC2 -->|"channel messages"| Channels["Telegram / WhatsApp<br/>/ Signal"]
-    EC2 -->|"reads secrets"| SM["Secrets Manager<br/>(LLM, RPC, Web, Telegram token)"]
+    EC2 -->|"reads secrets"| SM["Secrets Manager<br/>(LLM, RPC, Web Search, Telegram)"]
     EC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
     EC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
+    EC2 -->|"HTTPS"| Web["Web Search Provider<br/>(Brave)"]
     EC2 <-->|"Sign(tx hash) / signature"| KMS["KMS<br/>(ECC_NIST_P256)"]
 ```
 
