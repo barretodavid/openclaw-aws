@@ -16,14 +16,12 @@ const MAX_READINESS_WAIT_MS = 300_000; // 5 minutes
 const POLL_INTERVAL_MS = 10_000;
 
 export interface InstanceInfo {
-  agentInstanceId: string;
-  gatewayServerInstanceId: string;
-  gatewayServerPrivateIp: string;
+  instanceId: string;
 }
 
 /**
- * Discover all 3 EC2 instances for a deployed CDK stack by looking up
- * instances tagged with the stack name and identifying them by IAM role.
+ * Discover the EC2 instance for a deployed CDK stack by looking up
+ * instances tagged with the stack name.
  */
 export async function discoverInstances(
   cfn: CloudFormationClient,
@@ -49,37 +47,12 @@ export async function discoverInstances(
   );
 
   const allInstances = instances.Reservations?.flatMap((r) => r.Instances ?? []) ?? [];
-  if (allInstances.length !== 2) {
-    throw new Error(`Expected 2 running instances, found ${allInstances.length}`);
-  }
-
-  let agentInstanceId = '';
-  let gatewayServerInstanceId = '';
-  let gatewayServerPrivateIp = '';
-
-  for (const instance of allInstances) {
-    const iamProfile = instance.IamInstanceProfile?.Arn ?? '';
-    const id = instance.InstanceId!;
-    const privateIp = instance.PrivateIpAddress!;
-
-    if (iamProfile.includes('Agent')) {
-      agentInstanceId = id;
-    } else if (iamProfile.includes('Gateway')) {
-      gatewayServerInstanceId = id;
-      gatewayServerPrivateIp = privateIp;
-    }
-  }
-
-  if (!agentInstanceId || !gatewayServerInstanceId) {
-    throw new Error(
-      `Could not identify all instances. Agent: ${agentInstanceId}, Gateway: ${gatewayServerInstanceId}`,
-    );
+  if (allInstances.length !== 1) {
+    throw new Error(`Expected 1 running instance, found ${allInstances.length}`);
   }
 
   return {
-    agentInstanceId,
-    gatewayServerInstanceId,
-    gatewayServerPrivateIp,
+    instanceId: allInstances[0].InstanceId!,
   };
 }
 

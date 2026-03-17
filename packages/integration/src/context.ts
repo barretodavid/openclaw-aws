@@ -4,9 +4,7 @@ import * as path from 'node:path';
 const CONTEXT_FILE = path.join(__dirname, '..', '.test-context.json');
 
 export interface TestContext {
-  agentInstanceId: string;
-  gatewayServerInstanceId: string;
-  gatewayServerPrivateIp: string;
+  instanceId: string;
 }
 
 export function writeContext(ctx: TestContext): void {

@@ -1,23 +1,16 @@
 import { readContext } from './context';
 import { runCommand } from './ssm-helper';
-import { AGENT_NAME } from './config';
 
 const ctx = readContext();
 
 describe('Network Connectivity Verification', () => {
-  test('Agent Server can reach Gateway Server on port 18789', async () => {
-    // Connection refused means the network path is open (SG allows it)
-    // but nothing is listening. Timeout means SG blocked it.
+  test('Server can reach the internet via HTTPS', async () => {
     const result = await runCommand(
-      ctx.agentInstanceId,
-      `timeout 5 bash -c "echo > /dev/tcp/gateway.${AGENT_NAME}.vpc/18789" 2>&1; echo "EXIT:$?"`,
+      ctx.instanceId,
+      'curl -sSf -o /dev/null -w "%{http_code}" https://api.ipify.org 2>&1 || true',
     );
 
-    const output = result.stdout + result.stderr;
-    // Exit 0 = connected, or "Connection refused" = port reachable but no listener
-    // Both prove the security group allows the traffic
-    const networkOpen =
-      output.includes('EXIT:0') || output.includes('Connection refused');
-    expect(networkOpen).toBe(true);
+    const output = result.stdout.trim();
+    expect(output).toBe('200');
   });
 });

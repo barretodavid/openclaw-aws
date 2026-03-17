@@ -193,11 +193,9 @@ export function resolveAgentMachine(
       'sudo -u ubuntu npm config set prefix /home/ubuntu/.npm-global',
       'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' > /etc/profile.d/npm-global.sh',
       'echo \'export PATH="/home/ubuntu/.npm-global/bin:$PATH"\' >> /home/ubuntu/.bashrc',
-      // OpenClaw needs this to use plain ws:// over non-loopback (VPC-internal, SG-protected)
-      'echo \'export OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1\' > /etc/profile.d/openclaw.sh',
       // Enable systemd user instance for ubuntu (persists user services without login)
       'loginctl enable-linger ubuntu',
-      // Pre-install OpenClaw (no auto-start -- gateway server depends on manual signal-cli setup, agent depends on gateway server)
+      // Pre-install OpenClaw (no auto-start -- depends on manual channel setup)
       'sudo -u ubuntu npm install -g openclaw',
     ],
     defaultUser: 'ubuntu',

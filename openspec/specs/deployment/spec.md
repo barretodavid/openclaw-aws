@@ -146,9 +146,9 @@ The infrastructure SHALL be defined as a single CDK stack.
 #### Scenario: Resource counts
 
 - **WHEN** the stack is deployed
-- **THEN** it SHALL create exactly 2 EC2 instances
-- **AND** exactly 2 IAM roles
-- **AND** exactly 2 security groups
+- **THEN** it SHALL create exactly 1 EC2 instance
+- **AND** exactly 1 IAM role
+- **AND** exactly 1 security group
 - **AND** 0 CDK-managed KMS keys (agent creates them at runtime)
 
 ### Requirement: Tear-Down Safety
@@ -212,15 +212,15 @@ The project SHALL use pnpm workspaces with three packages.
 
 ### Requirement: Deploy Commands With Cloud-Init Wait
 
-All deploy commands SHALL wait for cloud-init completion on all 2 EC2 instances before returning, and SHALL print instance IDs with SSM connect instructions.
+All deploy commands SHALL wait for cloud-init completion on the EC2 instance before returning, and SHALL print the instance ID with SSM connect instructions.
 
 #### Scenario: Deploy stack
 
 - **WHEN** `pnpm run deploy` is executed
 - **THEN** it SHALL deploy the CDK stack using `AGENT_NAME` and `CDK_AZ` from `.env`
-- **AND** it SHALL wait for SSM agent readiness on all 2 instances
-- **AND** it SHALL wait for cloud-init completion on all 2 instances
-- **AND** it SHALL print instance IDs with `aws ssm start-session` commands
+- **AND** it SHALL wait for SSM agent readiness on the instance
+- **AND** it SHALL wait for cloud-init completion on the instance
+- **AND** it SHALL print the instance ID with an `aws ssm start-session` command
 
 ### Requirement: Destroy Commands
 
@@ -272,34 +272,21 @@ The integration test suite SHALL separate infrastructure lifecycle from test exe
 #### Scenario: Run tests against existing stack
 
 - **WHEN** `pnpm run test:integration` is executed
-- **THEN** Jest SHALL discover the deployed stack's instances via CloudFormation using the stack name derived from `AGENT_NAME`
-- **AND** it SHALL wait for SSM agent readiness on all 2 instances (using shared utilities)
-- **AND** it SHALL wait for cloud-init completion on all 2 instances (using shared utilities)
-- **AND** it SHALL run the test suite via SSM commands against the live instances
-
-#### Scenario: CI composite command
-
-- **WHEN** `pnpm run ci` is executed
-- **THEN** it SHALL generate an ephemeral `AGENT_NAME` (e.g., `ci-${timestamp}`)
-- **AND** it SHALL deploy, run integration tests, then destroy in sequence
-- **AND** the stack SHALL be destroyed even if tests fail
+- **THEN** Jest SHALL discover the deployed stack's instance via CloudFormation using the stack name derived from `AGENT_NAME`
+- **AND** it SHALL wait for SSM agent readiness on the instance
+- **AND** it SHALL wait for cloud-init completion on the instance
+- **AND** it SHALL run the test suite via SSM commands against the live instance
 
 ### Requirement: Cloud-Init Readiness Gate
 
-Tests SHALL NOT execute until all user data provisioning is complete on all instances.
+Tests SHALL NOT execute until all user data provisioning is complete on the instance.
 
 #### Scenario: Waiting for cloud-init
 
-- **GIVEN** all 2 instances have SSM agent online
+- **GIVEN** the instance has SSM agent online
 - **WHEN** global setup checks readiness
-- **THEN** it SHALL poll each instance for `/var/lib/cloud/instance/boot-finished` via SSM (using shared utilities)
-- **AND** it SHALL proceed only when all 2 instances report the file exists
-
-#### Scenario: Cloud-init timeout
-
-- **GIVEN** cloud-init has not completed within the timeout period
-- **WHEN** the timeout is exceeded
-- **THEN** global setup SHALL throw an error listing which instances are not ready
+- **THEN** it SHALL poll the instance for `/var/lib/cloud/instance/boot-finished` via SSM
+- **AND** it SHALL proceed only when the instance reports the file exists
 
 ### Requirement: Base Instance Software
 
@@ -313,23 +300,22 @@ All EC2 instances (Agent, Gateway) SHALL have AWS CLI v2 installed via shared ba
 
 ### Requirement: SSM Session Manager Access
 
-All instances SHALL be accessible via SSM Session Manager instead of SSH.
+The instance SHALL be accessible via SSM Session Manager instead of SSH.
 
 #### Scenario: No open SSH ports
 
 - **WHEN** the stack is deployed
 - **THEN** no security group SHALL allow inbound traffic on port 22
-- **AND** all IAM roles SHALL include AmazonSSMManagedInstanceCore
+- **AND** the IAM role SHALL include AmazonSSMManagedInstanceCore
 
 ### Requirement: Default Instance Sizing
 
-Each EC2 instance SHALL have a default instance type sized for its workload.
+The EC2 instance SHALL have a default instance type sized for running OpenClaw gateway with Docker sandboxing.
 
 #### Scenario: Instance type defaults
 
 - **WHEN** the stack is deployed with default props
-- **THEN** the Agent instance SHALL default to t3a.large (8 GB RAM)
-- **AND** the Gateway instance SHALL default to t3a.small (2 GB RAM)
+- **THEN** the instance SHALL default to t3a.xlarge (16 GB RAM)
 
 #### Scenario: Custom instance type override
 
@@ -338,169 +324,64 @@ Each EC2 instance SHALL have a default instance type sized for its workload.
 
 ### Requirement: Software Provisioning Verification
 
-The integration test suite SHALL verify that each EC2 instance has its expected software installed and on `$PATH` after cloud-init completes. System binaries (node, docker, aws) SHALL be checked as root. Non-system binaries installed via npm globals or manual extraction (openclaw, signal-cli) SHALL be checked as the ubuntu user.
+The integration test suite SHALL verify that the EC2 instance has all expected software installed and on `$PATH` after cloud-init completes. System binaries (node, docker, aws, signal-cli) SHALL be checked as root. OpenClaw, installed via the ubuntu user's npm global prefix, SHALL be checked as the ubuntu user.
 
-#### Scenario: Agent Server provisioning
+#### Scenario: Server provisioning
 
-- **WHEN** the Agent Server has completed cloud-init
+- **WHEN** the instance has completed cloud-init
 - **THEN** `which node` SHALL exit 0
 - **AND** `which docker` SHALL exit 0
 - **AND** `which aws` SHALL exit 0
-- **AND** `which openclaw` SHALL exit 0 (as the ubuntu user)
-
-#### Scenario: Gateway Server provisioning
-
-- **WHEN** the Gateway Server has completed cloud-init
-- **THEN** `which node` SHALL exit 0
-- **AND** `which aws` SHALL exit 0
-- **AND** `which signal-cli` SHALL exit 0 (as the ubuntu user)
+- **AND** `which signal-cli` SHALL exit 0
 - **AND** `which openclaw` SHALL exit 0 (as the ubuntu user)
 
 ### Requirement: Login Commands
 
-The project SHALL provide login commands that start interactive SSM sessions to deployed EC2 instances without requiring the user to know instance IDs.
+The project SHALL provide a login command that starts an interactive SSM session to the deployed EC2 instance without requiring the user to know the instance ID.
 
-#### Scenario: Login to agent server
+#### Scenario: Login to server
 
-- **WHEN** `pnpm run login:agent` is executed
+- **WHEN** `pnpm run login` is executed
 - **THEN** it SHALL resolve the region from `CDK_AZ` in `.env`
-- **AND** it SHALL discover the Agent Server instance ID using `discoverInstances` with stack name `${agentName}`
+- **AND** it SHALL discover the instance ID using `discoverInstances` with stack name `${agentName}`
 - **AND** it SHALL start an interactive SSM session with `--document-name ${agentName}`
-
-#### Scenario: Login to gateway server
-
-- **WHEN** `pnpm run login:gateway` is executed
-- **THEN** it SHALL resolve the region from `CDK_AZ` in `.env`
-- **AND** it SHALL discover the Gateway Server instance ID using `discoverInstances` with stack name `${agentName}`
-- **AND** it SHALL start an interactive SSM session with `--document-name ${agentName}`
-
-#### Scenario: Invalid server name
-
-- **WHEN** `login.ts` is invoked with an unrecognized server name
-- **THEN** it SHALL exit with an error listing valid server names (agent, gateway)
-
-#### Scenario: Stack not deployed
-
-- **WHEN** `login.ts` is invoked and the target stack does not exist
-- **THEN** it SHALL exit with an error indicating the stack was not found
 
 ### Requirement: Post-Deployment Setup Documentation
 
-The project SHALL include an OPENCLAW.md file at the root documenting the CLI-only steps to configure and start OpenClaw after deployment. The root README.md SHALL link to OPENCLAW.md instead of inlining the setup steps. Secret IDs in all commands SHALL use `${agentName}/` prefix. Gateway WebSocket URL SHALL use `gateway.${agentName}.vpc`. OPENCLAW.md SHALL document two access modes: single user (allowlist) and multi user (open).
+The project SHALL include an OPENCLAW.md file at the root documenting the CLI-only steps to configure and start OpenClaw after deployment on a single server. The root README.md SHALL link to OPENCLAW.md. OPENCLAW.md SHALL document two access modes: single user (allowlist) and multi user (open).
 
 #### Scenario: README.md links to OPENCLAW.md
 
 - **WHEN** a user reads the root README.md
 - **THEN** the "OpenClaw Setup" section SHALL contain only a link to OPENCLAW.md for post-deployment configuration
-- **AND** it SHALL NOT inline any `openclaw` CLI commands
 
-#### Scenario: Pre-deploy channel choice remains in README.md
-
-- **WHEN** a user reads the pre-deploy prerequisites in README.md
-- **THEN** the documentation SHALL still include the channel comparison table (Telegram / WhatsApp / Signal) with ratings for setup difficulty, setup cost, maintenance, privacy, user familiarity, and survives redeploy
-- **AND** it SHALL still include pre-deploy channel preparation steps (BotFather for Telegram, dedicated phone for WhatsApp, skip for Signal)
-- **AND** the SIM card guidance section SHALL remain in README.md
-
-#### Scenario: OPENCLAW.md Gateway Server login and onboard
+#### Scenario: OPENCLAW.md server login and onboard
 
 - **WHEN** a user reads OPENCLAW.md
-- **THEN** it SHALL instruct logging in with `pnpm run login:gateway`
-- **AND** it SHALL instruct running `openclaw onboard` with quickstart flow, LAN bind, Venice auth, and the desired model on the Gateway Server
+- **THEN** it SHALL instruct logging in with `pnpm run login`
+- **AND** it SHALL instruct running `openclaw onboard` with quickstart flow, Venice auth, and the desired model
 
-#### Scenario: OPENCLAW.md channel setup (Telegram)
+#### Scenario: OPENCLAW.md secrets configuration
 
-- **WHEN** a user configures Telegram in OPENCLAW.md
-- **THEN** it SHALL document configuring an exec SecretRef provider fetching from `${agentName}/telegram-token`
-- **AND** it SHALL instruct adding the channel with `openclaw channels add --channel telegram`
-- **AND** it SHALL NOT include `dmPolicy` or `allowFrom` configuration (access control is a separate section)
-
-#### Scenario: OPENCLAW.md channel setup (WhatsApp)
-
-- **WHEN** a user configures WhatsApp in OPENCLAW.md
-- **THEN** it SHALL document running `openclaw channels login --channel whatsapp --verbose` to display the QR code
-- **AND** it SHALL instruct adding the channel with `openclaw channels add --channel whatsapp`
-- **AND** it SHALL include the "Why a dedicated phone number?" explanation
-- **AND** it SHALL NOT include `dmPolicy` or `allowFrom` configuration
-
-#### Scenario: OPENCLAW.md channel setup (Signal)
-
-- **WHEN** a user configures Signal in OPENCLAW.md
-- **THEN** it SHALL document the captcha, registration, and verification steps
-- **AND** it SHALL instruct adding the channel with `openclaw channels add --channel signal --account <PHONE_NUMBER>`
-- **AND** it SHALL NOT include `dmPolicy` or `allowFrom` configuration
-
-#### Scenario: OPENCLAW.md access mode -- single user
-
-- **WHEN** a user configures single user access in OPENCLAW.md
-- **THEN** it SHALL instruct setting `dmPolicy` to `allowlist` for the configured channel
-- **AND** it SHALL instruct setting `allowFrom` to a JSON array with the single sender ID
-- **AND** it SHALL instruct setting `session.dmScope` to `per-channel-peer`
-- **AND** it SHALL explain how to find the sender ID (e.g., @userinfobot for Telegram, phone number for WhatsApp/Signal)
-
-#### Scenario: OPENCLAW.md access mode -- multi user open
-
-- **WHEN** a user configures multi user open access in OPENCLAW.md
-- **THEN** it SHALL instruct setting `dmPolicy` to `open` for the configured channel
-- **AND** it SHALL instruct setting `allowFrom` to `["*"]`
-- **AND** it SHALL instruct setting `session.dmScope` to `per-channel-peer`
-- **AND** it SHALL note that this mode is intended for demos and presentations
-- **AND** it SHALL warn that anyone who can reach the bot can interact with it
-- **AND** it SHALL recommend not configuring wallet or crypto operations in this mode
-
-#### Scenario: OPENCLAW.md Gateway Server secrets configuration
-
-- **WHEN** a user configures secrets on the Gateway Server in OPENCLAW.md
+- **WHEN** a user configures secrets in OPENCLAW.md
 - **THEN** it SHALL document configuring LLM API key, web search API key, and optionally RPC API key using exec SecretRef providers fetching from Secrets Manager
-- **AND** it SHALL provide one fully expanded example showing the complete wizard flow (provider setup, credential mapping, apply)
-- **AND** the remaining secrets SHALL use a condensed format (table or summary) showing: provider name, AWS CLI args, and credential path
 - **AND** each secret SHALL specify the exec command as `/usr/local/bin/aws` with `passEnv: HOME`
 
-#### Scenario: OPENCLAW.md Gateway Server model configuration
+#### Scenario: OPENCLAW.md channel setup
 
-- **WHEN** a user configures models on the Gateway Server in OPENCLAW.md
-- **THEN** it SHALL instruct setting the image model and fallback model on the Gateway Server
+- **WHEN** a user configures a messaging channel in OPENCLAW.md
+- **THEN** it SHALL document Telegram (exec SecretRef for bot token), WhatsApp (QR code scan), and Signal (captcha + registration) channel setup
+- **AND** it SHALL NOT include `dmPolicy` or `allowFrom` in channel sections (access control is separate)
 
-#### Scenario: OPENCLAW.md gateway token and service
+#### Scenario: OPENCLAW.md access modes
 
-- **WHEN** a user completes Gateway Server channel and secrets setup in OPENCLAW.md
-- **THEN** it SHALL instruct storing the gateway token in Secrets Manager with `aws secretsmanager put-secret-value --secret-id ${agentName}/gateway-token --secret-string "<GATEWAY_TOKEN>"`
-- **AND** it SHALL document installing, starting, and enabling the gateway service
+- **WHEN** a user configures access control in OPENCLAW.md
+- **THEN** it SHALL document single user mode (dmPolicy allowlist) and multi user open mode (dmPolicy open, demo only)
 
-#### Scenario: OPENCLAW.md Agent Server setup
+#### Scenario: OPENCLAW.md gateway service
 
-- **WHEN** a user reads the Agent Server section in OPENCLAW.md
-- **THEN** it SHALL instruct logging in with `pnpm run login:agent`
-- **AND** it SHALL instruct running `openclaw onboard` with remote mode connecting to `ws://gateway.${agentName}.vpc:18789` (without auth-choice or model flags, which are ignored in remote mode)
-- **AND** it SHALL instruct configuring the gateway token secret using an exec SecretRef provider fetching from `${agentName}/gateway-token`
-- **AND** it SHALL instruct installing and running the OpenClaw node to maintain the WebSocket connection to the Gateway
-
-#### Scenario: OPENCLAW.md variable placeholders
-
-- **WHEN** a command in OPENCLAW.md contains user-specific values
-- **THEN** it SHALL use angle bracket placeholders (e.g. `<PHONE_NUMBER>`, `<OWNER_PHONE_NUMBER>`, `<CAPTCHA_TOKEN>`, `<SMS_CODE>`, `<GATEWAY_TOKEN>`, `<TELEGRAM_USER_ID>`)
-- **AND** it SHALL define each placeholder with a brief description
-- **AND** it SHALL NOT use placeholders for LLM provider, model, or API key values (these SHALL use concrete Venice values)
-- **AND** it SHALL NOT use placeholders for web search provider values (these SHALL use concrete Brave values)
-
-### Requirement: Gateway Token Secret
-
-The CDK stack SHALL create a Secrets Manager secret for the gateway authentication token, readable only by the Agent Server.
-
-#### Scenario: Secret creation
-
-- **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `${agentName}/gateway-token` SHALL be created with a placeholder value
-- **AND** the secret description SHALL indicate it is for gateway authentication and is populated post-deploy
-
-#### Scenario: Agent Server access
-
-- **WHEN** the Agent Server IAM role is evaluated
-- **THEN** it SHALL have read access to the `${agentName}/gateway-token` secret
-
-#### Scenario: Gateway Server access
-
-- **WHEN** the Gateway Server IAM role is evaluated
-- **THEN** it SHALL NOT have access to the `${agentName}/gateway-token` secret
+- **WHEN** a user completes configuration in OPENCLAW.md
+- **THEN** it SHALL instruct installing, starting, and enabling the gateway service
 
 ### Requirement: CDK README Accurately Describes Current Architecture
 
@@ -531,13 +412,3 @@ The `packages/cdk/README.md` SHALL include a "Rotate an API key" section that li
 - **WHEN** an operator reads the rotation section
 - **THEN** it SHALL warn that `.env` must also be updated, otherwise the next `cdk deploy` will revert the secret to the old value
 
-### Requirement: Architecture Diagram
-
-The root README.md Mermaid architecture diagram SHALL accurately reflect which servers read from Secrets Manager.
-
-#### Scenario: Gateway Server Secrets Manager access in diagram
-
-- **WHEN** a user reads the architecture diagram
-- **THEN** it SHALL show the Gateway Server reading the Telegram token from Secrets Manager
-- **AND** it SHALL show the Agent Server reading API keys from Secrets Manager
-- **AND** the Secrets Manager node label SHALL include the Telegram token in its list of secrets

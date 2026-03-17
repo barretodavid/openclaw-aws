@@ -30,29 +30,23 @@ execSync('cdk deploy --require-approval never', {
   },
 });
 
-console.log('Deploy complete. Waiting for instances to be ready...\n');
+console.log('Deploy complete. Waiting for instance to be ready...\n');
 
 async function waitForReady() {
   const { cfn, ec2, ssm } = createClients(region);
 
-  const instances = await discoverInstances(cfn, ec2, agentName!);
-  const instanceIds = [
-    instances.agentInstanceId,
-    instances.gatewayServerInstanceId,
-  ];
+  const { instanceId } = await discoverInstances(cfn, ec2, agentName!);
 
-  await waitForSsmReady(ssm, instanceIds);
-  await waitForCloudInit(ssm, instanceIds);
+  await waitForSsmReady(ssm, [instanceId]);
+  await waitForCloudInit(ssm, [instanceId]);
 
-  console.log('\nAll servers ready!\n');
-  console.log(`  Agent Server     ${instances.agentInstanceId}`);
-  console.log(`  Gateway Server   ${instances.gatewayServerInstanceId}`);
+  console.log('\nServer ready!\n');
+  console.log(`  Instance   ${instanceId}`);
   console.log('\nConnect with:');
-  console.log(`  aws ssm start-session --target ${instances.agentInstanceId} --document-name ${agentName}   # Agent`);
-  console.log(`  aws ssm start-session --target ${instances.gatewayServerInstanceId} --document-name ${agentName}   # Gateway`);
+  console.log(`  aws ssm start-session --target ${instanceId} --document-name ${agentName}`);
 }
 
 waitForReady().catch((err) => {
-  console.error('Failed waiting for instances:', err);
+  console.error('Failed waiting for instance:', err);
   process.exit(1);
 });

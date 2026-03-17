@@ -11,9 +11,8 @@ const TEST_AGENT_NAME = 'testagent';
 const defaults = {
   agentName: TEST_AGENT_NAME,
   availabilityZone: 'us-east-1a',
-  agentInstanceType: new ec2.InstanceType('t3a.large'),
-  gatewayServerInstanceType: new ec2.InstanceType('t3a.small'),
-  agentVolumeGb: 30,
+  instanceType: new ec2.InstanceType('t3a.xlarge'),
+  volumeGb: 30,
 };
 
 let template: Template;
@@ -93,6 +92,18 @@ function findResource(
   return match;
 }
 
+/** Find a resource in a specific template (for per-test templates). */
+function findResourceIn(
+  tmpl: Template,
+  type: string,
+  predicate: (logicalId: string, resource: CfnResource) => boolean,
+): [string, CfnResource] {
+  const resources = tmpl.findResources(type);
+  const match = Object.entries(resources).find(([id, r]) => predicate(id, r));
+  if (!match) throw new Error(`No ${type} matched predicate`);
+  return match;
+}
+
 /** Find an IAM Role by a keyword in its Description. */
 function findRole(keyword: string): [string, CfnResource] {
   return findResource('AWS::IAM::Role', (_id, r) =>
@@ -100,23 +111,28 @@ function findRole(keyword: string): [string, CfnResource] {
   );
 }
 
-/** Find a Security Group by a keyword in its GroupDescription. */
-function findSg(keyword: string): [string, CfnResource] {
-  return findResource('AWS::EC2::SecurityGroup', (_id, r) =>
-    (r.Properties?.GroupDescription as string)?.includes(keyword),
-  );
-}
-
-/** Find an EC2 Instance by a marker string in its UserData. */
-function findInstance(marker: string): [string, CfnResource] {
-  return findResource('AWS::EC2::Instance', (_id, r) =>
-    JSON.stringify(r.Properties?.UserData ?? '').includes(marker),
-  );
-}
-
 /** Get all IAM action strings from all inline policies attached to a role. */
 function getActionsForRole(roleLogicalId: string): string[] {
   const policies = template.findResources('AWS::IAM::Policy');
+  const actions: string[] = [];
+
+  for (const [, policy] of Object.entries(policies)) {
+    const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+    if (!roles.some((r) => r.Ref === roleLogicalId)) continue;
+
+    const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+    for (const stmt of statements) {
+      const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+      actions.push(...(stmtActions as string[]));
+    }
+  }
+
+  return actions;
+}
+
+/** Get all IAM actions for a role in a specific template (for per-test templates). */
+function getActionsForRoleIn(tmpl: Template, roleLogicalId: string): string[] {
+  const policies = tmpl.findResources('AWS::IAM::Policy');
   const actions: string[] = [];
 
   for (const [, policy] of Object.entries(policies)) {
@@ -155,24 +171,10 @@ function getEgressRules(sgLogicalId: string): Record<string, unknown>[] {
   return rules;
 }
 
-/** Resolve the IAM Role logical ID for an EC2 instance by following Instance -> InstanceProfile -> Role. */
-function resolveInstanceRole(instanceLogicalId: string): string {
-  const instances = template.findResources('AWS::EC2::Instance');
-  const instance = instances[instanceLogicalId];
-  const profileRef = (instance.Properties?.IamInstanceProfile as { Ref: string })?.Ref;
-  if (!profileRef) throw new Error(`Instance ${instanceLogicalId} has no IamInstanceProfile`);
-
-  const profiles = template.findResources('AWS::IAM::InstanceProfile');
-  const profile = profiles[profileRef];
-  const roles = (profile.Properties?.Roles as { Ref: string }[]) ?? [];
-  if (roles.length === 0) throw new Error(`InstanceProfile ${profileRef} has no Roles`);
-  return roles[0].Ref;
-}
-
 // --- Security Boundary Tests ---
 
 describe('Security Boundaries', () => {
-  test('Agent role allows kms:CreateKey only with wallet tag and correct key spec conditions', () => {
+  test('Role allows kms:CreateKey only with wallet tag and correct key spec conditions', () => {
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([
@@ -192,7 +194,7 @@ describe('Security Boundaries', () => {
     });
   });
 
-  test('Agent role allows kms:Sign, kms:GetPublicKey, kms:DescribeKey only with wallet tag condition', () => {
+  test('Role allows kms:Sign, kms:GetPublicKey, kms:DescribeKey only with wallet tag condition', () => {
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([
@@ -210,7 +212,7 @@ describe('Security Boundaries', () => {
     });
   });
 
-  test('Agent role allows tag:GetResources for wallet key discovery', () => {
+  test('Role allows tag:GetResources for wallet key discovery', () => {
     template.hasResourceProperties('AWS::IAM::Policy', {
       PolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([
@@ -223,123 +225,92 @@ describe('Security Boundaries', () => {
     });
   });
 
-  test('All EC2 roles allow SSM Session Manager access', () => {
+  test('Role has SSM Session Manager access', () => {
     const roles = template.findResources('AWS::IAM::Role');
     const ec2Roles = Object.values(roles).filter(
       (r) => r.Properties?.AssumeRolePolicyDocument?.Statement?.[0]?.Principal?.Service === 'ec2.amazonaws.com',
     );
 
-    expect(ec2Roles).toHaveLength(2);
+    expect(ec2Roles).toHaveLength(1);
 
-    for (const role of ec2Roles) {
-      const managedPolicies: { 'Fn::Join': [string, string[]] }[] = role.Properties.ManagedPolicyArns;
-      const policyArns = managedPolicies.map((p) => {
-        if (typeof p === 'string') return p;
-        if (p['Fn::Join']) return p['Fn::Join'][1].join('');
-        return JSON.stringify(p);
-      });
-      const hasSsmPolicy = policyArns.some((arn) => arn.includes('AmazonSSMManagedInstanceCore'));
-      expect(hasSsmPolicy).toBe(true);
+    const role = ec2Roles[0];
+    const managedPolicies: { 'Fn::Join': [string, string[]] }[] = role.Properties.ManagedPolicyArns;
+    const policyArns = managedPolicies.map((p) => {
+      if (typeof p === 'string') return p;
+      if (p['Fn::Join']) return p['Fn::Join'][1].join('');
+      return JSON.stringify(p);
+    });
+    const hasSsmPolicy = policyArns.some((arn) => arn.includes('AmazonSSMManagedInstanceCore'));
+    expect(hasSsmPolicy).toBe(true);
+  });
+
+  test('Role has Secrets Manager access to LLM and web search secrets', () => {
+    const [roleId] = findRole('Agent Server');
+    const actions = getActionsForRole(roleId);
+    const smActions = actions.filter((a) => a.startsWith('secretsmanager:'));
+    expect(smActions.length).toBeGreaterThan(0);
+  });
+
+  test('Secret access is scoped to specific secrets, not wildcard', () => {
+    const [roleId] = findRole('Agent Server');
+    const policies = template.findResources('AWS::IAM::Policy');
+
+    for (const [, policy] of Object.entries(policies)) {
+      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+      if (!roles.some((r) => r.Ref === roleId)) continue;
+
+      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+      for (const stmt of statements) {
+        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+        if (stmtActions.some((a: string) => a.startsWith('secretsmanager:'))) {
+          const resource = stmt.Resource;
+          expect(resource).toBeDefined();
+          expect(resource).not.toBe('*');
+        }
+      }
     }
   });
-
-  test('Gateway Server security group allows inbound only from Agent SG on port 18789', () => {
-    template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
-      IpProtocol: 'tcp',
-      FromPort: 18789,
-      ToPort: 18789,
-    });
-  });
-
 });
 
 // --- Resource Configuration Tests ---
 
 describe('Resource Configuration', () => {
-  test('All EC2 instances require IMDSv2 to prevent SSRF credential theft', () => {
+  test('EC2 instance requires IMDSv2 to prevent SSRF credential theft', () => {
     const launchTemplates = template.findResources('AWS::EC2::LaunchTemplate');
     const imdsv2Templates = Object.values(launchTemplates).filter(
       (lt) => lt.Properties?.LaunchTemplateData?.MetadataOptions?.HttpTokens === 'required',
     );
-    expect(imdsv2Templates).toHaveLength(2);
+    expect(imdsv2Templates).toHaveLength(1);
   });
 
-  test('Agent Server EC2 defaults to t3a.large', () => {
+  test('EC2 defaults to t3a.xlarge', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't3a.large',
+      InstanceType: 't3a.xlarge',
     });
   });
 
-  test('Agent Server EC2 user data installs Docker and Node.js via apt', () => {
+  test('EC2 user data installs Docker, Node.js, signal-cli, and OpenClaw', () => {
     const instances = template.findResources('AWS::EC2::Instance');
-    let foundDockerUserData = false;
+    const instance = Object.values(instances)[0];
+    const userDataStr = JSON.stringify(instance.Properties?.UserData);
 
-    for (const [, instance] of Object.entries(instances)) {
-      if (instance.Properties?.InstanceType === 't3a.large') {
-        const userDataStr = JSON.stringify(instance.Properties?.UserData);
-        expect(userDataStr).toContain('apt-get install -y docker.io unzip nodejs unattended-upgrades');
-        expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
-        expect(userDataStr).toContain('systemctl enable docker');
-        expect(userDataStr).toContain('systemctl start docker');
-        foundDockerUserData = true;
-      }
-    }
-
-    expect(foundDockerUserData).toBe(true);
+    expect(userDataStr).toContain('apt-get install -y docker.io unzip nodejs unattended-upgrades');
+    expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
+    expect(userDataStr).toContain('systemctl enable docker');
+    expect(userDataStr).toContain('systemctl start docker');
+    expect(userDataStr).toContain('signal-cli');
+    expect(userDataStr).toContain('openclaw');
   });
 
-  test('Gateway Server EC2 user data installs signal-cli', () => {
+  test('EC2 user data does not set OPENCLAW_ALLOW_INSECURE_PRIVATE_WS', () => {
     const instances = template.findResources('AWS::EC2::Instance');
-    let foundSignalCli = false;
+    const instance = Object.values(instances)[0];
+    const userDataStr = JSON.stringify(instance.Properties?.UserData);
 
-    for (const [, instance] of Object.entries(instances)) {
-      const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
-      if (userDataStr.includes('signal-cli')) {
-        expect(userDataStr).toContain('-C /usr/local/bin');
-        expect(userDataStr).toContain('awscli-exe-linux-x86_64.zip');
-        expect(userDataStr).not.toContain('docker');
-        foundSignalCli = true;
-      }
-    }
-
-    expect(foundSignalCli).toBe(true);
+    expect(userDataStr).not.toContain('OPENCLAW_ALLOW_INSECURE_PRIVATE_WS');
   });
 
-  test('Agent Server and Gateway Server user data set OPENCLAW_ALLOW_INSECURE_PRIVATE_WS', () => {
-    const instances = template.findResources('AWS::EC2::Instance');
-    let agentHasEnvVar = false;
-    let gatewayServerHasEnvVar = false;
-
-    for (const [, instance] of Object.entries(instances)) {
-      const userDataStr = JSON.stringify(instance.Properties?.UserData ?? '');
-      if (userDataStr.includes('docker')) {
-        expect(userDataStr).toContain('OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1');
-        agentHasEnvVar = true;
-      }
-      if (userDataStr.includes('signal-cli')) {
-        expect(userDataStr).toContain('OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1');
-        gatewayServerHasEnvVar = true;
-      }
-    }
-
-    expect(agentHasEnvVar).toBe(true);
-    expect(gatewayServerHasEnvVar).toBe(true);
-  });
-
-  test('Private hosted zone exists with agent-scoped zone name', () => {
-    template.hasResourceProperties('AWS::Route53::HostedZone', {
-      Name: `${TEST_AGENT_NAME}.vpc.`,
-    });
-  });
-
-  test('A record for gateway points to gateway server instance', () => {
-    template.hasResourceProperties('AWS::Route53::RecordSet', {
-      Name: `gateway.${TEST_AGENT_NAME}.vpc.`,
-      Type: 'A',
-    });
-  });
-
-  test('Agent Server EC2 has 30 GB gp3 EBS volume', () => {
+  test('EC2 has 30 GB gp3 EBS volume', () => {
     template.hasResourceProperties('AWS::EC2::Instance', {
       BlockDeviceMappings: Match.arrayWith([
         Match.objectLike({
@@ -356,77 +327,42 @@ describe('Resource Configuration', () => {
 // --- Resource Count Tests ---
 
 describe('Resource Counts', () => {
-  test('exactly 2 EC2 instances', () => {
-    template.resourceCountIs('AWS::EC2::Instance', 2);
+  test('exactly 1 EC2 instance', () => {
+    template.resourceCountIs('AWS::EC2::Instance', 1);
   });
 
-  test('exactly 2 IAM roles', () => {
-    template.resourceCountIs('AWS::IAM::Role', 2);
+  test('exactly 1 IAM role', () => {
+    template.resourceCountIs('AWS::IAM::Role', 1);
   });
 
-  test('exactly 2 security groups', () => {
-    template.resourceCountIs('AWS::EC2::SecurityGroup', 2);
+  test('exactly 1 security group', () => {
+    template.resourceCountIs('AWS::EC2::SecurityGroup', 1);
   });
 
   test('no CDK-managed KMS keys (agent creates them at runtime)', () => {
     template.resourceCountIs('AWS::KMS::Key', 0);
   });
 
-  test('4 Secrets Manager secrets (LLM + RPC + Web + gateway token)', () => {
-    template.resourceCountIs('AWS::SecretsManager::Secret', 4);
+  test('3 Secrets Manager secrets (LLM + RPC + Web, no gateway token)', () => {
+    template.resourceCountIs('AWS::SecretsManager::Secret', 3);
   });
 
   test('no SSM parameters', () => {
     template.resourceCountIs('AWS::SSM::Parameter', 0);
   });
 
-  test('1 DNS A record (gateway.vpc only)', () => {
-    template.resourceCountIs('AWS::Route53::RecordSet', 1);
+  test('no Route 53 hosted zones', () => {
+    template.resourceCountIs('AWS::Route53::HostedZone', 0);
+  });
+
+  test('no Route 53 record sets', () => {
+    template.resourceCountIs('AWS::Route53::RecordSet', 0);
   });
 });
 
 // --- Security Invariant Tests ---
 
 describe('Security Invariants', () => {
-  test('Agent Server secret access is scoped to gateway-token only, not wildcard', () => {
-    const [agentRoleId] = findRole('Agent Server');
-    const policies = template.findResources('AWS::IAM::Policy');
-
-    let smStatementCount = 0;
-    for (const [, policy] of Object.entries(policies)) {
-      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
-
-      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
-      for (const stmt of statements) {
-        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-        if (stmtActions.some((a: string) => a.startsWith('secretsmanager:'))) {
-          const resource = stmt.Resource;
-          expect(resource).toBeDefined();
-          expect(resource).not.toBe('*');
-          smStatementCount++;
-        }
-      }
-    }
-
-    // Agent Server should have exactly 1 SM statement (gateway-token only)
-    expect(smStatementCount).toBe(1);
-  });
-
-  test('A compromised gateway server cannot sign transactions', () => {
-    const [gatewayServerRoleId] = findRole('Gateway Server');
-    const actions = getActionsForRole(gatewayServerRoleId);
-    const kmsActions = actions.filter((a) => a.startsWith('kms:'));
-    expect(kmsActions).toEqual([]);
-  });
-
-  test('Gateway Server role has Secrets Manager access to LLM and web search secrets', () => {
-    const [gatewayServerRoleId] = findRole('Gateway Server');
-    const actions = getActionsForRole(gatewayServerRoleId);
-    const smActions = actions.filter((a) => a.startsWith('secretsmanager:'));
-    expect(smActions.length).toBeGreaterThan(0);
-  });
-
   test('No server accepts traffic from the public internet', () => {
     const sgs = template.findResources('AWS::EC2::SecurityGroup');
     for (const [, sg] of Object.entries(sgs)) {
@@ -444,81 +380,43 @@ describe('Security Invariants', () => {
     }
   });
 
-  test('The agent server can only talk to the gateway server and the internet', () => {
-    const [agentSgId] = findSg('no inbound');
-    const [gatewayServerSgId] = findSg('Gateway Server EC2');
+  test('Security group only allows outbound HTTPS and HTTP', () => {
+    const sgs = template.findResources('AWS::EC2::SecurityGroup');
+    const sgId = Object.keys(sgs)[0];
+    const egressRules = getEgressRules(sgId);
 
-    const egressRules = getEgressRules(agentSgId);
-    expect(egressRules).toHaveLength(3);
+    expect(egressRules).toHaveLength(2);
 
-    const cidrRules = egressRules.filter((r) => r.CidrIp === '0.0.0.0/0');
-    const cidrPorts = cidrRules.map((r) => r.FromPort as number).sort((a, b) => a - b);
+    const cidrPorts = egressRules.map((r) => r.FromPort as number).sort((a, b) => a - b);
     expect(cidrPorts).toEqual([80, 443]);
-
-    const sgRules = egressRules.filter((r) => !r.CidrIp);
-    const sgTargets = sgRules.map((r) => ({
-      sg: (r.DestinationSecurityGroupId as { 'Fn::GetAtt': string[] })?.['Fn::GetAtt']?.[0],
-      port: r.FromPort,
-    }));
-
-    expect(sgTargets).toEqual([
-      { sg: gatewayServerSgId, port: 18789 },
-    ]);
   });
 });
 
 // --- Cross-Resource Relationship Tests ---
 
 describe('Cross-Resource Relationships', () => {
-  test('A refactor cannot accidentally give a server the wrong permissions', () => {
-    const [agentRoleId] = findRole('Agent Server');
-    const [gatewayServerRoleId] = findRole('Gateway Server');
-
-    const [agentInstanceId] = findInstance('docker.io');
-    const [gatewayServerInstanceId] = findInstance('signal-cli');
-
-    expect(resolveInstanceRole(agentInstanceId)).toBe(agentRoleId);
-    expect(resolveInstanceRole(gatewayServerInstanceId)).toBe(gatewayServerRoleId);
-  });
-
-  test('A refactor cannot accidentally give a server the wrong network access', () => {
-    const [agentSgId] = findSg('no inbound');
-    const [gatewayServerSgId] = findSg('Gateway Server EC2');
-
-    const [agentInstanceId] = findInstance('docker.io');
-    const [gatewayServerInstanceId] = findInstance('signal-cli');
-
+  test('Instance uses the correct IAM role', () => {
     const instances = template.findResources('AWS::EC2::Instance');
+    const instanceId = Object.keys(instances)[0];
+    const instance = instances[instanceId];
 
-    for (const [instanceId, expectedSgId] of [
-      [agentInstanceId, agentSgId],
-      [gatewayServerInstanceId, gatewayServerSgId],
-    ] as const) {
-      const sgIds = instances[instanceId].Properties?.SecurityGroupIds as { 'Fn::GetAtt': string[] }[];
-      expect(sgIds).toHaveLength(1);
-      expect(sgIds[0]['Fn::GetAtt'][0]).toBe(expectedSgId);
-    }
+    const profileRef = (instance.Properties?.IamInstanceProfile as { Ref: string })?.Ref;
+    expect(profileRef).toBeDefined();
+
+    const profiles = template.findResources('AWS::IAM::InstanceProfile');
+    const profile = profiles[profileRef!];
+    const roles = (profile.Properties?.Roles as { Ref: string }[]) ?? [];
+    expect(roles).toHaveLength(1);
+
+    const [roleId] = findRole('Agent Server');
+    expect(roles[0].Ref).toBe(roleId);
   });
 
-  test('Internal DNS routes to the correct servers', () => {
-    const [gatewayServerInstanceId] = findInstance('signal-cli');
-    const [agentInstanceId] = findInstance('docker.io');
-
-    const records = template.findResources('AWS::Route53::RecordSet');
-
-    for (const [, record] of Object.entries(records)) {
-      const name = record.Properties?.Name as string;
-      const targetRef = (
-        (record.Properties?.ResourceRecords as { 'Fn::GetAtt': string[] }[])?.[0]
-      )?.['Fn::GetAtt']?.[0];
-
-      if (name === `gateway.${TEST_AGENT_NAME}.vpc.`) {
-        expect(targetRef).toBe(gatewayServerInstanceId);
-      }
-
-      // No DNS record should ever point to the agent server
-      expect(targetRef).not.toBe(agentInstanceId);
-    }
+  test('Instance uses the correct security group', () => {
+    const instances = template.findResources('AWS::EC2::Instance');
+    const instance = Object.values(instances)[0];
+    const sgIds = instance.Properties?.SecurityGroupIds as { 'Fn::GetAtt': string[] }[];
+    expect(sgIds).toHaveLength(1);
   });
 });
 
@@ -562,59 +460,6 @@ describe('Web Search Secret', () => {
   });
 });
 
-// --- Gateway Token Secret Tests ---
-
-describe('Gateway Token Secret', () => {
-  test('Gateway token secret exists with correct name and description', () => {
-    template.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: `${TEST_AGENT_NAME}/gateway-token`,
-      Description: Match.stringLikeRegexp('Gateway authentication token'),
-    });
-  });
-
-  test('Agent Server role has read access to the gateway token secret', () => {
-    const [agentRoleId] = findRole('Agent Server');
-    const policies = template.findResources('AWS::IAM::Policy');
-
-    let foundGatewayTokenGrant = false;
-    for (const [, policy] of Object.entries(policies)) {
-      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
-
-      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
-      for (const stmt of statements) {
-        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-        if (stmtActions.includes('secretsmanager:GetSecretValue')) {
-          foundGatewayTokenGrant = true;
-        }
-      }
-    }
-
-    expect(foundGatewayTokenGrant).toBe(true);
-  });
-
-  test('Gateway Server role does not have access to the gateway token secret', () => {
-    const [gatewayServerRoleId] = findRole('Gateway Server');
-    const [agentRoleId] = findRole('Agent Server');
-    const policies = template.findResources('AWS::IAM::Policy');
-
-    // Find the policy granting gateway-token access -- it should be on agentRole, not gatewayServerRole
-    for (const [, policy] of Object.entries(policies)) {
-      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
-
-      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
-      for (const stmt of statements) {
-        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-        if (stmtActions.includes('secretsmanager:GetSecretValue')) {
-          // This gateway-token policy should not also be on the gateway role
-          expect(roles.some((r) => r.Ref === gatewayServerRoleId)).toBe(false);
-        }
-      }
-    }
-  });
-});
-
 // --- LLM API Key Secret Tests ---
 
 describe('LLM API Key Secret', () => {
@@ -624,14 +469,14 @@ describe('LLM API Key Secret', () => {
     });
   });
 
-  test('Gateway Server role has scoped read access to the LLM secret', () => {
-    const [gatewayServerRoleId] = findRole('Gateway Server');
+  test('Role has scoped read access to the LLM secret', () => {
+    const [roleId] = findRole('Agent Server');
     const policies = template.findResources('AWS::IAM::Policy');
 
     let foundLlmGrant = false;
     for (const [, policy] of Object.entries(policies)) {
       const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-      if (!roles.some((r) => r.Ref === gatewayServerRoleId)) continue;
+      if (!roles.some((r) => r.Ref === roleId)) continue;
 
       const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
       for (const stmt of statements) {
@@ -662,8 +507,8 @@ describe('RPC API Key Secret', () => {
     delete process.env.RPC_API_KEY;
     try {
       const tmpl = createStackWithConfig();
-      // 3 secrets: LLM + Web + gateway-token (no RPC)
-      tmpl.resourceCountIs('AWS::SecretsManager::Secret', 3);
+      // 2 secrets: LLM + Web (no RPC, no gateway token)
+      tmpl.resourceCountIs('AWS::SecretsManager::Secret', 2);
     } finally {
       process.env.RPC_PROVIDER = saved.RPC_PROVIDER;
       process.env.RPC_API_KEY = saved.RPC_API_KEY;
@@ -674,7 +519,7 @@ describe('RPC API Key Secret', () => {
 // --- Telegram Bot Token Secret Tests ---
 
 describe('Telegram Bot Token Secret', () => {
-  test('Telegram secret exists with Gateway Server read access when TELEGRAM_BOT_TOKEN is set', () => {
+  test('Telegram secret exists when TELEGRAM_BOT_TOKEN is set', () => {
     process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-token';
     try {
       const tmpl = createStackWithConfig();
@@ -683,47 +528,6 @@ describe('Telegram Bot Token Secret', () => {
         Name: `${TEST_AGENT_NAME}/telegram-token`,
         Description: Match.stringLikeRegexp('Telegram bot token'),
       });
-
-      // Gateway Server role should have secretsmanager actions
-      const [gatewayRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
-        (r.Properties?.Description as string)?.includes('Gateway Server'),
-      );
-      const gatewayActions = getActionsForRoleIn(tmpl, gatewayRoleId);
-      const smActions = gatewayActions.filter((a) => a.startsWith('secretsmanager:'));
-      expect(smActions.length).toBeGreaterThan(0);
-    } finally {
-      delete process.env.TELEGRAM_BOT_TOKEN;
-    }
-  });
-
-  test('Agent Server role does NOT have access to the Telegram token secret', () => {
-    process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-token';
-    try {
-      const tmpl = createStackWithConfig();
-
-      const [agentRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
-        (r.Properties?.Description as string)?.includes('Agent Server'),
-      );
-      const [gatewayRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
-        (r.Properties?.Description as string)?.includes('Gateway Server'),
-      );
-
-      // Find the policy that grants SM access to the Gateway role (for the Telegram secret)
-      const policies = tmpl.findResources('AWS::IAM::Policy');
-      for (const [, policy] of Object.entries(policies)) {
-        const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-        // If this policy is attached to the Gateway role and has SM access, it should NOT also be on the Agent role
-        if (roles.some((r) => r.Ref === gatewayRoleId)) {
-          const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
-          for (const stmt of statements) {
-            const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-            if (stmtActions.some((a: string) => a.startsWith('secretsmanager:'))) {
-              // This SM policy should not be on the Agent role
-              expect(roles.some((r) => r.Ref === agentRoleId)).toBe(false);
-            }
-          }
-        }
-      }
     } finally {
       delete process.env.TELEGRAM_BOT_TOKEN;
     }
@@ -733,7 +537,6 @@ describe('Telegram Bot Token Secret', () => {
     delete process.env.TELEGRAM_BOT_TOKEN;
     const tmpl = createStackWithConfig();
 
-    // No telegram secret
     const secrets = tmpl.findResources('AWS::SecretsManager::Secret');
     const telegramSecrets = Object.values(secrets).filter(
       (s) => (s.Properties?.Name as string) === `${TEST_AGENT_NAME}/telegram-token`,
@@ -741,47 +544,16 @@ describe('Telegram Bot Token Secret', () => {
     expect(telegramSecrets).toHaveLength(0);
   });
 
-  test('Secret count is 5 when TELEGRAM_BOT_TOKEN is set (LLM + RPC + Web + gateway-token + telegram)', () => {
+  test('Secret count is 4 when TELEGRAM_BOT_TOKEN is set (LLM + RPC + Web + telegram)', () => {
     process.env.TELEGRAM_BOT_TOKEN = 'test-telegram-token';
     try {
       const tmpl = createStackWithConfig();
-      tmpl.resourceCountIs('AWS::SecretsManager::Secret', 5);
+      tmpl.resourceCountIs('AWS::SecretsManager::Secret', 4);
     } finally {
       delete process.env.TELEGRAM_BOT_TOKEN;
     }
   });
 });
-
-/** Find a resource in a specific template (for per-test templates). */
-function findResourceIn(
-  tmpl: Template,
-  type: string,
-  predicate: (logicalId: string, resource: CfnResource) => boolean,
-): [string, CfnResource] {
-  const resources = tmpl.findResources(type);
-  const match = Object.entries(resources).find(([id, r]) => predicate(id, r));
-  if (!match) throw new Error(`No ${type} matched predicate`);
-  return match;
-}
-
-/** Get all IAM actions for a role in a specific template (for per-test templates). */
-function getActionsForRoleIn(tmpl: Template, roleLogicalId: string): string[] {
-  const policies = tmpl.findResources('AWS::IAM::Policy');
-  const actions: string[] = [];
-
-  for (const [, policy] of Object.entries(policies)) {
-    const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-    if (!roles.some((r) => r.Ref === roleLogicalId)) continue;
-
-    const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
-    for (const stmt of statements) {
-      const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
-      actions.push(...(stmtActions as string[]));
-    }
-  }
-
-  return actions;
-}
 
 // --- LLM Provider Validation Tests ---
 
@@ -861,20 +633,16 @@ function createStackWithConfig(overrides: Partial<typeof defaults> = {}): Templa
   return Template.fromStack(stack);
 }
 
-function getAgentUserData(tmpl: Template, instanceType: string): string {
+function getInstanceUserData(tmpl: Template): string {
   const instances = tmpl.findResources('AWS::EC2::Instance');
-  for (const [, instance] of Object.entries(instances)) {
-    if (instance.Properties?.InstanceType === instanceType) {
-      return JSON.stringify(instance.Properties?.UserData);
-    }
-  }
-  throw new Error(`No instance found with type ${instanceType}`);
+  const instance = Object.values(instances)[0];
+  return JSON.stringify(instance.Properties?.UserData);
 }
 
 describe('Agent Machine Configuration', () => {
   test('default config uses apt-get, Docker, and ubuntu user', () => {
     const tmpl = createStackWithConfig();
-    const userData = getAgentUserData(tmpl, 't3a.large');
+    const userData = getInstanceUserData(tmpl);
 
     expect(userData).toContain('apt-get update -y');
     expect(userData).toContain('deb.nodesource.com/setup_24.x');
@@ -883,25 +651,20 @@ describe('Agent Machine Configuration', () => {
     expect(userData).toContain('usermod -aG docker ubuntu');
   });
 
-  test('custom x86 agent instance type produces correct instance type in template', () => {
+  test('custom x86 instance type produces correct instance type in template', () => {
     const tmpl = createStackWithConfig({
-      agentInstanceType: new ec2.InstanceType('m5a.large'),
+      instanceType: new ec2.InstanceType('m5a.large'),
     });
 
     tmpl.hasResourceProperties('AWS::EC2::Instance', {
       InstanceType: 'm5a.large',
     });
-
-    const userData = getAgentUserData(tmpl, 'm5a.large');
-    expect(userData).toContain('apt-get install -y docker.io unzip nodejs');
-    expect(userData).toContain('awscli-exe-linux-x86_64.zip');
   });
 
-  test('Agent Server EC2 uses /dev/sda1 root device', () => {
+  test('EC2 uses /dev/sda1 root device', () => {
     const tmpl = createStackWithConfig();
 
     tmpl.hasResourceProperties('AWS::EC2::Instance', {
-      InstanceType: 't3a.large',
       BlockDeviceMappings: Match.arrayWith([
         Match.objectLike({
           DeviceName: '/dev/sda1',
@@ -911,15 +674,9 @@ describe('Agent Machine Configuration', () => {
     });
   });
 
-  test('ARM agent instance type throws an error', () => {
+  test('ARM instance type throws an error', () => {
     expect(() => createStackWithConfig({
-      agentInstanceType: new ec2.InstanceType('t4g.large'),
-    })).toThrow(/ARM instance types are not supported/);
-  });
-
-  test('ARM gateway server instance type throws an error', () => {
-    expect(() => createStackWithConfig({
-      gatewayServerInstanceType: new ec2.InstanceType('t4g.nano'),
+      instanceType: new ec2.InstanceType('t4g.large'),
     })).toThrow(/ARM instance types are not supported/);
   });
 });
@@ -1001,9 +758,6 @@ describe('Agent Name Scoping', () => {
     tmpl.hasResourceProperties('AWS::SecretsManager::Secret', {
       Name: `${TEST_AGENT_NAME}/web-search-api-key`,
     });
-    tmpl.hasResourceProperties('AWS::SecretsManager::Secret', {
-      Name: `${TEST_AGENT_NAME}/gateway-token`,
-    });
   });
 
   test('KMS CreateKey condition uses agent name as tag key', () => {
@@ -1039,13 +793,6 @@ describe('Agent Name Scoping', () => {
           }),
         ]),
       }),
-    });
-  });
-
-  test('PHZ zone name includes agent name', () => {
-    const tmpl = createStackWithConfig();
-    tmpl.hasResourceProperties('AWS::Route53::HostedZone', {
-      Name: `${TEST_AGENT_NAME}.vpc.`,
     });
   });
 });

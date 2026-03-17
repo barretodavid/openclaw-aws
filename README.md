@@ -1,33 +1,27 @@
 # OpenClaw Safe Agent Infrastructure
 
-Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS), API keys and channel credentials (via Secrets Manager with per-server IAM scoping) so that even a compromised agent cannot extract the wallet key.
+Secure AWS infrastructure for running an OpenClaw agent using AWS CDK. Protects the Starknet wallet private key (via KMS) and API keys and channel credentials (via Secrets Manager) so that even a compromised agent cannot extract the wallet key.
 
 ## Architecture
 
 ```mermaid
 graph LR
-    Laptop -->|"SSM Session Manager"| AgentEC2
-    Laptop -->|"SSM Session Manager"| GatewayEC2
-    subgraph VPC ["Default VPC -- public subnets"]
-        DNS["Route 53<br/>Private Hosted Zone<br/>(gateway.&lt;AGENT_NAME&gt;.vpc)"]
-        AgentEC2["Agent Server / Node<br/>(EC2, configurable)"]
-        GatewayEC2["Gateway Server<br/>(EC2 t3a.small)"]
-        AgentEC2 -->|"WebSocket node<br/>(ws://gateway.&lt;AGENT_NAME&gt;.vpc:18789)"| GatewayEC2
+    Laptop -->|"SSM Session Manager"| EC2
+    subgraph VPC ["Default VPC -- public subnet"]
+        EC2["Agent Server<br/>(EC2 t3a.xlarge)"]
     end
-    GatewayEC2 -->|"channel messages"| Channels["Telegram / WhatsApp<br/>/ Signal"]
-    GatewayEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, Telegram token)"]
-    AgentEC2 -->|"reads gateway token"| SM
-    GatewayEC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
-    GatewayEC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
-    AgentEC2 <-->|"Sign(tx hash) / signature"| KMS["KMS<br/>(ECC_NIST_P256)"]
-    AgentEC2 -->|"signed tx"| Blockchain
+    EC2 -->|"channel messages"| Channels["Telegram / WhatsApp<br/>/ Signal"]
+    EC2 -->|"reads secrets"| SM["Secrets Manager<br/>(LLM, RPC, Web, Telegram token)"]
+    EC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
+    EC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
+    EC2 <-->|"Sign(tx hash) / signature"| KMS["KMS<br/>(ECC_NIST_P256)"]
 ```
 
 ## Packages
 
 | Package | Description |
 |---|---|
-| [`packages/cdk`](packages/cdk/) | AWS CDK stack -- EC2 instances, IAM roles, KMS, Secrets Manager, Route 53, security groups |
+| [`packages/cdk`](packages/cdk/) | AWS CDK stack -- EC2 instance, IAM role, KMS, Secrets Manager, security group |
 | [`packages/shared`](packages/shared/) | Internal AWS utilities -- client creation, SSM commands, instance discovery, cloud-init readiness |
 | [`packages/integration`](packages/integration/) | Integration test suite -- runs against deployed stack via SSM |
 
@@ -111,20 +105,20 @@ Your agent needs a messaging channel so you can talk to it. OpenClaw supports Te
 **Setup difficulty** -- what's involved in getting the channel running
 
 - **Telegram: Low** -- Create a bot via @BotFather, copy the token, paste it into `.env`. No phone, no binary, no registration ceremony.
-- **WhatsApp: Medium** -- Install WhatsApp on a dedicated phone, then scan a QR code from the Gateway Server terminal. Straightforward but requires a physical device nearby during setup.
+- **WhatsApp: Medium** -- Install WhatsApp on a dedicated phone, then scan a QR code from the server terminal. Straightforward but requires a physical device nearby during setup.
 - **Signal: High** -- Solve a CAPTCHA in a browser, register the phone number via signal-cli, wait for an SMS code, verify it. Multiple steps across multiple tools.
 
 **Setup cost** -- hardware and services you need to acquire
 
 - **Telegram: Low** -- Nothing beyond the AWS infrastructure you're already deploying.
 - **WhatsApp: High** -- Dedicated phone + SIM card, and the phone must remain powered and connected permanently (it's ongoing infrastructure, not a one-time purchase).
-- **Signal: Medium** -- Dedicated phone + SIM card for registration only. After verification the phone can be put away -- signal-cli runs independently on the Gateway Server.
+- **Signal: Medium** -- Dedicated phone + SIM card for registration only. After verification the phone can be put away -- signal-cli runs independently on the server.
 
 **Maintenance** -- ongoing effort to keep the channel working
 
 - **Telegram: Low** -- Bot token is stored in Secrets Manager. Nothing to maintain.
 - **WhatsApp: Medium** -- The dedicated phone must connect to the internet at least once every 14 days or WhatsApp unlinks the session. If it drops, you must re-scan the QR code via SSM.
-- **Signal: Low** -- signal-cli manages its own keys on the Gateway Server. No phone keepalive required.
+- **Signal: Low** -- signal-cli manages its own keys on the server. No phone keepalive required.
 
 **Privacy** -- what third parties can see
 
@@ -138,11 +132,11 @@ Your agent needs a messaging channel so you can talk to it. OpenClaw supports Te
 - **WhatsApp: High** -- ~2 billion users worldwide. Most people already have it installed and use it daily.
 - **Signal: Low** -- Niche adoption, mostly among privacy-conscious users. Most people would need to install it for the first time.
 
-**Survives redeploy** -- whether destroying and redeploying the Gateway Server preserves the channel session
+**Survives redeploy** -- whether destroying and redeploying the server preserves the channel session
 
-- **Telegram: Yes** -- The bot token is stored in AWS Secrets Manager, not on the instance. A fresh Gateway Server can retrieve it immediately.
-- **WhatsApp: No** -- The Baileys session credentials are stored locally on the Gateway Server. Redeployment requires re-scanning the QR code.
-- **Signal: No** -- signal-cli keys are stored locally on the Gateway Server. Redeployment requires re-registering the phone number.
+- **Telegram: Yes** -- The bot token is stored in AWS Secrets Manager, not on the instance. A fresh server can retrieve it immediately.
+- **WhatsApp: No** -- The Baileys session credentials are stored locally on the server. Redeployment requires re-scanning the QR code.
+- **Signal: No** -- signal-cli keys are stored locally on the server. Redeployment requires re-registering the phone number.
 
 **Recommendation:** **Telegram** to get started quickly with no hardware. **WhatsApp** for E2E encryption with easy setup (requires a dedicated phone). **Signal** for maximum privacy with no ongoing device maintenance.
 
@@ -173,8 +167,8 @@ A cheap prepaid or travel SIM card. Must support SMS -- some data-only or travel
 If your number gets reassigned to someone else and they register WhatsApp or Signal on it:
 
 - **Your agent goes offline.** The old session (Baileys for WhatsApp, signal-cli for Signal) gets invalidated by the platform's servers.
-- **No one gains control of your agent.** The new owner gets a fresh account with no chat history, no linked devices, and no access to your Gateway Server. Linking to the Gateway requires SSM access to scan a QR code (WhatsApp) or run registration commands (Signal).
-- **Recovery:** get a new SIM, activate with the new number, re-link or re-register on the Gateway Server, and update the allowlist.
+- **No one gains control of your agent.** The new owner gets a fresh account with no chat history, no linked devices, and no access to your server. Linking to the Gateway requires SSM access to scan a QR code (WhatsApp) or run registration commands (Signal).
+- **Recovery:** get a new SIM, activate with the new number, re-link or re-register on the server, and update the allowlist.
 
 Number recycling is an availability risk (agent goes offline), not a security risk (no one gains control). If your agent going offline and needing a number change is acceptable, a prepaid SIM is fine. If you need reliability, use a long-term SIM.
 
@@ -194,7 +188,7 @@ Number recycling is an availability risk (agent goes offline), not a security ri
 3. Keep the phone powered and connected to Wi-Fi -- it must stay online permanently. After activation, WhatsApp only needs internet (not SMS), so Wi-Fi is sufficient for day-to-day use. However, retain the ability to receive SMS on the registered number in case WhatsApp ever requires re-verification (e.g., after reinstalling the app).
 4. No `.env` changes needed -- WhatsApp has no pre-deploy token.
 
-**If using Signal**, skip this step -- Signal setup happens post-deploy on the Gateway Server.
+**If using Signal**, skip this step -- Signal setup happens post-deploy on the server.
 
 ### Configure .env
 
@@ -224,7 +218,7 @@ WEB_SEARCH_API_KEY=...
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 ```
 
-`AGENT_NAME` scopes all AWS resources (secrets, DNS, KMS tags, SSM document) so multiple agents can coexist in the same account and region. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`).
+`AGENT_NAME` scopes all AWS resources (secrets, KMS tags, SSM document) so multiple agents can coexist in the same account and region. The region is derived automatically from the AZ (e.g., `us-east-1a` becomes `us-east-1`).
 
 ## Deploy
 
@@ -242,20 +236,20 @@ npx cdk deploy
 
 CDK will show the resources to be created and ask for confirmation. After deployment, the stack outputs will display:
 
-* **AgentServerInstanceId** -- Agent Server EC2 instance ID
-* **GatewayServerInstanceId** -- Gateway Server EC2 instance ID
-* **GatewayServerPrivateIp** -- Gateway Server private IP (agent connects via `ws://gateway.<AGENT_NAME>.vpc:18789`)
+* **InstanceId** -- EC2 instance ID
 
-## Connect to instances
+## Connect to the instance
 
 Use SSM Session Manager (no SSH keys needed):
 
 ```bash
-# Connect to the Agent Server EC2
-aws ssm start-session --target <AgentServerInstanceId> --document-name <AGENT_NAME>
+aws ssm start-session --target <InstanceId> --document-name <AGENT_NAME>
+```
 
-# Connect to the Gateway Server EC2
-aws ssm start-session --target <GatewayServerInstanceId> --document-name <AGENT_NAME>
+Or use the shortcut:
+
+```bash
+pnpm run login
 ```
 
 ## Tear down
@@ -268,4 +262,4 @@ npx cdk destroy
 
 ## OpenClaw Setup
 
-After deployment, see [OPENCLAW.md](OPENCLAW.md) for Gateway and Agent server configuration.
+After deployment, see [OPENCLAW.md](OPENCLAW.md) for server configuration.

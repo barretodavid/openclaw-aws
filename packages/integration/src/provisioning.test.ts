@@ -9,47 +9,28 @@ function asUbuntu(command: string): string {
 }
 
 describe('Software Provisioning', () => {
-  describe('Agent Server', () => {
-    test('node is installed', async () => {
-      const result = await runCommand(ctx.agentInstanceId, 'which node');
-      expect(result.exitCode).toBe(0);
-    });
-
-    test('docker is installed', async () => {
-      const result = await runCommand(ctx.agentInstanceId, 'which docker');
-      expect(result.exitCode).toBe(0);
-    });
-
-    test('aws CLI is installed', async () => {
-      const result = await runCommand(ctx.agentInstanceId, 'which aws');
-      expect(result.exitCode).toBe(0);
-    });
-
-    test('openclaw is installed', async () => {
-      const result = await runCommand(ctx.agentInstanceId, asUbuntu('which openclaw'));
-      expect(result.exitCode).toBe(0);
-    });
+  test('node is installed', async () => {
+    const result = await runCommand(ctx.instanceId, 'which node');
+    expect(result.exitCode).toBe(0);
   });
 
-  describe('Gateway Server', () => {
-    test('node is installed', async () => {
-      const result = await runCommand(ctx.gatewayServerInstanceId, 'which node');
-      expect(result.exitCode).toBe(0);
-    });
+  test('docker is installed', async () => {
+    const result = await runCommand(ctx.instanceId, 'which docker');
+    expect(result.exitCode).toBe(0);
+  });
 
-    test('aws CLI is installed', async () => {
-      const result = await runCommand(ctx.gatewayServerInstanceId, 'which aws');
-      expect(result.exitCode).toBe(0);
-    });
+  test('aws CLI is installed', async () => {
+    const result = await runCommand(ctx.instanceId, 'which aws');
+    expect(result.exitCode).toBe(0);
+  });
 
-    test('signal-cli is installed', async () => {
-      const result = await runCommand(ctx.gatewayServerInstanceId, asUbuntu('which signal-cli'));
-      expect(result.exitCode).toBe(0);
-    });
+  test('signal-cli is installed', async () => {
+    const result = await runCommand(ctx.instanceId, 'which signal-cli');
+    expect(result.exitCode).toBe(0);
+  });
 
-    test('openclaw is installed', async () => {
-      const result = await runCommand(ctx.gatewayServerInstanceId, asUbuntu('which openclaw'));
-      expect(result.exitCode).toBe(0);
-    });
+  test('openclaw is installed', async () => {
+    const result = await runCommand(ctx.instanceId, asUbuntu('which openclaw'));
+    expect(result.exitCode).toBe(0);
   });
 });

@@ -2,29 +2,9 @@
 
 ## Purpose
 
-The infrastructure SHALL use Route 53 private DNS and security groups to provide internal service discovery without exposing services to the internet.
+The infrastructure SHALL use security groups and the default VPC to provide network access without exposing services to the internet.
 
 ## Requirements
-
-### Requirement: Private DNS Zone
-
-A Route 53 private hosted zone SHALL provide internal DNS for service discovery.
-
-#### Scenario: Zone configuration
-
-- **WHEN** the stack is deployed
-- **THEN** a private hosted zone with name `${agentName}.vpc` SHALL be created
-- **AND** it SHALL be associated with the default VPC
-
-### Requirement: Service DNS Records
-
-DNS A records SHALL map service names to instance private IPs.
-
-#### Scenario: Base service records
-
-- **WHEN** the stack is deployed
-- **THEN** `gateway.${agentName}.vpc` SHALL resolve to the Gateway instance private IP
-- **AND** no DNS record SHALL point to the Agent instance
 
 ### Requirement: Default VPC Usage
 
@@ -43,11 +23,9 @@ Instance-to-role and instance-to-security-group bindings SHALL be correct.
 #### Scenario: Role binding integrity
 
 - **WHEN** the stack is deployed
-- **THEN** the Agent instance SHALL use the Agent IAM role
-- **AND** the Gateway instance SHALL use the Gateway IAM role
+- **THEN** the instance SHALL use the server IAM role
 
 #### Scenario: Security group binding integrity
 
 - **WHEN** the stack is deployed
-- **THEN** each instance SHALL have exactly one security group
-- **AND** each instance SHALL use its dedicated security group
+- **THEN** the instance SHALL have exactly one security group

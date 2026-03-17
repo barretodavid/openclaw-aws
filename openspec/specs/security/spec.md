@@ -2,33 +2,24 @@
 
 ## Purpose
 
-The infrastructure SHALL enforce security boundaries through IAM role separation so that compromise of any single server cannot escalate to full system compromise.
+The infrastructure SHALL enforce security boundaries through IAM roles and security groups so that the server has minimal permissions for its function.
 
 ## Requirements
 
 ### Requirement: IAM Role Isolation
 
-Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for its function.
+The EC2 instance SHALL have a single IAM role with permissions for KMS wallet management, Secrets Manager access, and SSM Session Manager.
 
-#### Scenario: Agent role permissions
+#### Scenario: Server role permissions
 
-- **GIVEN** the Agent EC2 instance
+- **GIVEN** the EC2 instance
 - **WHEN** its IAM role is evaluated
 - **THEN** it SHALL have KMS permissions (CreateKey, Sign, GetPublicKey, DescribeKey) restricted to keys tagged `${agentName}:wallet`
 - **AND** it SHALL have tag:GetResources for key discovery
-- **AND** it SHALL have Secrets Manager read access scoped to the `${agentName}/gateway-token` secret only
-- **AND** it SHALL have SSM Session Manager access
-
-#### Scenario: Gateway role permissions
-
-- **GIVEN** the Gateway EC2 instance
-- **WHEN** its IAM role is evaluated
-- **THEN** it SHALL have SSM Session Manager access
-- **AND** it SHALL NOT have KMS permissions
 - **AND** it SHALL have Secrets Manager read access scoped to the `${agentName}/llm-api-key` and `${agentName}/web-search-api-key` secrets
 - **AND** when `RPC_API_KEY` is set in `.env`, it SHALL also have Secrets Manager read access to the `${agentName}/rpc-api-key` secret
 - **AND** when `TELEGRAM_BOT_TOKEN` is set in `.env`, it SHALL also have Secrets Manager read access to the `${agentName}/telegram-token` secret
-- **AND** WhatsApp channel configuration SHALL NOT require any changes to the Gateway IAM role (session data is local-only)
+- **AND** it SHALL have SSM Session Manager access
 
 ### Requirement: No Public Inbound Traffic
 
@@ -45,7 +36,7 @@ All EC2 instances SHALL require IMDSv2 to prevent SSRF-based credential theft.
 
 #### Scenario: Metadata service protection
 
-- **GIVEN** any EC2 instance in the stack
+- **GIVEN** the EC2 instance in the stack
 - **WHEN** its launch configuration is evaluated
 - **THEN** HttpTokens SHALL be set to "required"
 
@@ -63,17 +54,10 @@ The Agent SHALL only create wallet keys with specific cryptographic parameters.
 
 ### Requirement: Network Segmentation
 
-Each server SHALL have a dedicated security group restricting its network access.
+The server SHALL have a dedicated security group restricting its network access.
 
-#### Scenario: Agent network access
+#### Scenario: Server network access
 
-- **GIVEN** the Agent security group
+- **GIVEN** the server security group
 - **THEN** it SHALL allow outbound HTTPS (443) and HTTP (80) to the internet
-- **AND** it SHALL allow outbound to the Gateway on port 18789
 - **AND** it SHALL have no inbound rules from the internet
-
-#### Scenario: Gateway network access
-
-- **GIVEN** the Gateway security group
-- **THEN** it SHALL allow inbound from the Agent security group on port 18789 only
-- **AND** it SHALL allow outbound HTTPS (443) and HTTP (80) to the internet
