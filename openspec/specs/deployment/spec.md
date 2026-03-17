@@ -34,7 +34,15 @@ All deployments SHALL be scoped by a required `AGENT_NAME` environment variable 
 
 ### Requirement: Web Search API Key
 
-The web search API key SHALL be stored in Secrets Manager and accessible only to the Agent Server. The provider SHALL be configurable via `WEB_SEARCH_PROVIDER` in `.env`.
+The web search API key SHALL be stored in Secrets Manager and accessible only to the Gateway Server. The provider SHALL be configurable via `WEB_SEARCH_PROVIDER` in `.env`.
+
+#### Scenario: Secret creation
+
+- **GIVEN** `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_API_KEY` are set in `.env`
+- **WHEN** the stack is deployed
+- **THEN** a Secrets Manager secret named `${agentName}/web-search-api-key` SHALL be created
+- **AND** only the Gateway Server IAM role SHALL have read access to this secret
+- **AND** the Agent Server role SHALL NOT have access to this secret
 
 #### Scenario: Required provider and API key in .env
 
@@ -51,29 +59,9 @@ The web search API key SHALL be stored in Secrets Manager and accessible only to
 - **WHEN** `WEB_SEARCH_PROVIDER` is set but `WEB_SEARCH_API_KEY` is not set or empty
 - **THEN** CDK synth SHALL fail with an error indicating that `WEB_SEARCH_API_KEY` is required when `WEB_SEARCH_PROVIDER` is set
 
-#### Scenario: Secret creation
-
-- **GIVEN** `WEB_SEARCH_PROVIDER` and `WEB_SEARCH_API_KEY` are set in `.env`
-- **WHEN** the stack is deployed
-- **THEN** a Secrets Manager secret named `${agentName}/web-search-api-key` SHALL be created
-- **AND** only the Agent Server IAM role SHALL have read access to this secret
-- **AND** the Gateway Server role SHALL NOT have access to this secret
-
-#### Scenario: .env.example entry
-
-- **GIVEN** the `.env.example` file
-- **THEN** it SHALL include a `WEB_SEARCH_PROVIDER` entry with a comment listing supported providers (brave, gemini, grok, kimi, perplexity)
-- **AND** it SHALL include a `WEB_SEARCH_API_KEY` entry
-
 ### Requirement: LLM API Key Required
 
 An LLM API key SHALL be set in `.env` for CDK synth to succeed.
-
-#### Scenario: No LLM API key set
-
-- **GIVEN** `LLM_API_KEY` is not set or empty in `.env`
-- **WHEN** CDK synth is executed
-- **THEN** it SHALL fail with an error indicating that `LLM_API_KEY` is required
 
 #### Scenario: LLM API key set
 
@@ -81,7 +69,13 @@ An LLM API key SHALL be set in `.env` for CDK synth to succeed.
 - **WHEN** CDK synth is executed
 - **THEN** the LLM API key validation SHALL pass
 - **AND** a Secrets Manager secret named `${agentName}/llm-api-key` SHALL be created
-- **AND** only the Agent Server IAM role SHALL have read access to this secret
+- **AND** only the Gateway Server IAM role SHALL have read access to this secret
+
+#### Scenario: No LLM API key set
+
+- **GIVEN** `LLM_API_KEY` is not set or empty in `.env`
+- **WHEN** CDK synth is executed
+- **THEN** it SHALL fail with an error indicating that `LLM_API_KEY` is required
 
 ### Requirement: RPC API Key
 
@@ -92,7 +86,7 @@ An RPC API key MAY be set in `.env` for blockchain RPC access.
 - **GIVEN** `RPC_API_KEY` is set in `.env`
 - **WHEN** the stack is deployed
 - **THEN** a Secrets Manager secret named `${agentName}/rpc-api-key` SHALL be created
-- **AND** only the Agent Server IAM role SHALL have read access to this secret
+- **AND** only the Gateway Server IAM role SHALL have read access to this secret
 
 ### Requirement: Telegram Bot Token Secret
 
@@ -411,12 +405,12 @@ The project SHALL include an OPENCLAW.md file at the root documenting the CLI-on
 
 - **WHEN** a user reads OPENCLAW.md
 - **THEN** it SHALL instruct logging in with `pnpm run login:gateway`
-- **AND** it SHALL instruct running `openclaw onboard --non-interactive --accept-risk --flow quickstart --gateway-bind lan --skip-daemon` on the Gateway Server
+- **AND** it SHALL instruct running `openclaw onboard` with quickstart flow, LAN bind, Venice auth, and the desired model on the Gateway Server
 
 #### Scenario: OPENCLAW.md channel setup (Telegram)
 
 - **WHEN** a user configures Telegram in OPENCLAW.md
-- **THEN** it SHALL document running `openclaw secrets configure` to set up an exec SecretRef provider fetching from `${agentName}/telegram-token`
+- **THEN** it SHALL document configuring an exec SecretRef provider fetching from `${agentName}/telegram-token`
 - **AND** it SHALL instruct adding the channel with `openclaw channels add --channel telegram`
 - **AND** it SHALL NOT include `dmPolicy` or `allowFrom` configuration (access control is a separate section)
 
@@ -453,27 +447,32 @@ The project SHALL include an OPENCLAW.md file at the root documenting the CLI-on
 - **AND** it SHALL warn that anyone who can reach the bot can interact with it
 - **AND** it SHALL recommend not configuring wallet or crypto operations in this mode
 
+#### Scenario: OPENCLAW.md Gateway Server secrets configuration
+
+- **WHEN** a user configures secrets on the Gateway Server in OPENCLAW.md
+- **THEN** it SHALL document configuring LLM API key, web search API key, and optionally RPC API key using exec SecretRef providers fetching from Secrets Manager
+- **AND** it SHALL provide one fully expanded example showing the complete wizard flow (provider setup, credential mapping, apply)
+- **AND** the remaining secrets SHALL use a condensed format (table or summary) showing: provider name, AWS CLI args, and credential path
+- **AND** each secret SHALL specify the exec command as `/usr/local/bin/aws` with `passEnv: HOME`
+
+#### Scenario: OPENCLAW.md Gateway Server model configuration
+
+- **WHEN** a user configures models on the Gateway Server in OPENCLAW.md
+- **THEN** it SHALL instruct setting the image model and fallback model on the Gateway Server
+
 #### Scenario: OPENCLAW.md gateway token and service
 
-- **WHEN** a user completes Gateway Server setup in OPENCLAW.md
-- **THEN** it SHALL instruct storing the token in Secrets Manager with `aws secretsmanager put-secret-value --secret-id ${agentName}/gateway-token --secret-string "<GATEWAY_TOKEN>"`
+- **WHEN** a user completes Gateway Server channel and secrets setup in OPENCLAW.md
+- **THEN** it SHALL instruct storing the gateway token in Secrets Manager with `aws secretsmanager put-secret-value --secret-id ${agentName}/gateway-token --secret-string "<GATEWAY_TOKEN>"`
 - **AND** it SHALL document installing, starting, and enabling the gateway service
 
 #### Scenario: OPENCLAW.md Agent Server setup
 
 - **WHEN** a user reads the Agent Server section in OPENCLAW.md
 - **THEN** it SHALL instruct logging in with `pnpm run login:agent`
-- **AND** it SHALL instruct running `openclaw onboard` with remote mode connecting to `ws://gateway.${agentName}.vpc:18789`
-- **AND** it SHALL instruct setting the image model and fallback model
-- **AND** it SHALL instruct starting the agent with `openclaw agent`
-
-#### Scenario: OPENCLAW.md condensed secrets configuration
-
-- **WHEN** a user configures secrets on the Agent Server in OPENCLAW.md
-- **THEN** it SHALL document all three secrets (LLM API key, gateway token, web search API key) using `openclaw secrets configure`
-- **AND** it SHALL provide one fully expanded example showing the complete wizard flow (provider setup, credential mapping, apply)
-- **AND** the remaining secrets SHALL use a condensed format (table or summary) showing: provider name, AWS CLI args, and credential path
-- **AND** each secret SHALL specify the exec command as `/usr/local/bin/aws` with `passEnv: HOME`
+- **AND** it SHALL instruct running `openclaw onboard` with remote mode connecting to `ws://gateway.${agentName}.vpc:18789` (without auth-choice or model flags, which are ignored in remote mode)
+- **AND** it SHALL instruct configuring the gateway token secret using an exec SecretRef provider fetching from `${agentName}/gateway-token`
+- **AND** it SHALL instruct installing and running the OpenClaw node to maintain the WebSocket connection to the Gateway
 
 #### Scenario: OPENCLAW.md variable placeholders
 

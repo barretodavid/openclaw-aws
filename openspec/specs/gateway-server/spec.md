@@ -51,33 +51,57 @@ The Gateway SHALL accept authenticated WebSocket connections from the Agent on a
 
 ### Requirement: Isolation
 
-The Gateway SHALL have no access to wallet signing. When Telegram is configured, the Gateway SHALL have scoped Secrets Manager read access for its bot token only. WhatsApp SHALL NOT require any Secrets Manager access.
+The Gateway SHALL have no access to wallet signing. The Gateway SHALL have Secrets Manager read access for LLM, web search, and optionally RPC and Telegram secrets to run agent logic and manage channels.
 
-#### Scenario: Minimal permissions
+#### Scenario: Agent logic permissions
 
 - **GIVEN** the Gateway IAM role
 - **WHEN** evaluated
-- **THEN** it SHALL have zero inline policy actions beyond SSM Session Manager and any conditional Secrets Manager access for the Telegram token
+- **THEN** it SHALL have Secrets Manager read access to the `${agentName}/llm-api-key` and `${agentName}/web-search-api-key` secrets
 - **AND** it SHALL NOT have KMS permissions
+
+#### Scenario: RPC access when configured
+
+- **GIVEN** the Gateway IAM role
+- **WHEN** `RPC_API_KEY` is set in `.env`
+- **THEN** it SHALL have Secrets Manager read access to the `${agentName}/rpc-api-key` secret
 
 #### Scenario: Telegram token access
 
 - **GIVEN** the Gateway IAM role
 - **WHEN** `TELEGRAM_BOT_TOKEN` is set in `.env`
-- **THEN** it SHALL have Secrets Manager read access scoped to the `${agentName}/telegram-token` secret only
+- **THEN** it SHALL have Secrets Manager read access scoped to the `${agentName}/telegram-token` secret
 
 #### Scenario: No Telegram token access when unconfigured
 
 - **GIVEN** the Gateway IAM role
 - **WHEN** `TELEGRAM_BOT_TOKEN` is not set in `.env`
-- **THEN** it SHALL NOT have any Secrets Manager permissions
+- **THEN** it SHALL NOT have Secrets Manager access to the `${agentName}/telegram-token` secret
 
 #### Scenario: WhatsApp requires no Secrets Manager access
 
 - **GIVEN** the Gateway IAM role
 - **WHEN** WhatsApp is configured as a channel
-- **THEN** no additional Secrets Manager permissions SHALL be required
-- **AND** the Gateway IAM role SHALL NOT change regardless of whether WhatsApp is configured
+- **THEN** no additional Secrets Manager permissions SHALL be required beyond those already granted for agent logic (LLM, web search)
+
+### Requirement: Agent Logic Execution
+
+The Gateway SHALL run OpenClaw agent logic, including LLM API calls, web search, and tool dispatch. It retrieves API credentials from Secrets Manager at runtime.
+
+#### Scenario: LLM API access
+
+- **WHEN** the Gateway processes an incoming message
+- **THEN** it SHALL call the configured LLM provider using the API key from Secrets Manager (`${agentName}/llm-api-key`)
+
+#### Scenario: Web search access
+
+- **WHEN** the Gateway agent invokes web search
+- **THEN** it SHALL use the web search API key from Secrets Manager (`${agentName}/web-search-api-key`)
+
+#### Scenario: RPC API access
+
+- **WHEN** `RPC_API_KEY` is set and the Gateway agent needs on-chain data
+- **THEN** it SHALL use the RPC API key from Secrets Manager (`${agentName}/rpc-api-key`)
 
 ### Requirement: Default Instance Sizing
 

@@ -14,8 +14,52 @@ Run the onboard wizard:
 
 ```bash
 openclaw onboard --non-interactive --accept-risk \
-  --flow quickstart --gateway-bind lan --skip-daemon
+  --flow quickstart --gateway-bind lan \
+  --auth-choice venice \
+  --model "venice/zai-org-glm-5" \
+  --skip-daemon
 ```
+
+### Configure models
+
+```bash
+openclaw models set-image venice/kimi-k2-5
+openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'
+```
+
+### Configure secrets
+
+The Gateway Server needs the LLM API key, web search API key, and (for Telegram) the bot token. All secrets follow the same `openclaw secrets configure` pattern: create an exec provider that fetches from Secrets Manager, then map it to a credential path.
+
+**LLM API key** (full walkthrough):
+
+Run `openclaw secrets configure` and follow the prompts:
+
+1. **Provider setup** -- add a new provider:
+   - Name: `llm`
+   - Source: `exec`
+   - Command: `/usr/local/bin/aws`
+   - Args: `secretsmanager get-secret-value --secret-id <AGENT_NAME>/llm-api-key --query SecretString --output text`
+   - passEnv: `HOME`
+   - jsonOnly: `false`
+
+2. **Credential mapping** -- select "Continue" from the provider menu, then:
+   - Select `models.providers.venice.apiKey` from the credential list
+   - Source: `exec`
+   - Provider: `llm`
+   - Secret ID: `value`
+
+3. **Apply** the plan
+
+**Remaining secrets** -- repeat the same `openclaw secrets configure` flow with these values:
+
+| Secret | Provider name | Secret ID in args | Credential path |
+|---|---|---|---|
+| Web search API key | `web` | `<AGENT_NAME>/web-search-api-key` | `tools.web.search.apiKey` |
+
+All providers use the same exec command (`/usr/local/bin/aws secretsmanager get-secret-value --secret-id <SECRET_ID> --query SecretString --output text`) with `passEnv: HOME` and `jsonOnly: false`.
+
+> All secrets are stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. They never touch disk.
 
 ### Configure your messaging channel
 
@@ -135,6 +179,8 @@ systemctl --user enable openclaw-gateway.service
 
 ## Agent Server
 
+The Agent Server connects to the Gateway as an OpenClaw node, providing shell execution and KMS wallet signing capabilities.
+
 Login to the agent server:
 
 ```bash
@@ -146,57 +192,34 @@ pnpm run login:agent
 ```bash
 openclaw onboard --non-interactive --accept-risk \
   --mode remote --remote-url "ws://gateway.<AGENT_NAME>.vpc:18789" \
-  --auth-choice venice \
-  --model "venice/zai-org-glm-5" \
   --skip-channels --skip-skills --skip-daemon
 ```
 
-### Configure models
-
-```bash
-openclaw models set-image venice/kimi-k2-5
-openclaw config set agents.defaults.model.fallbacks '["venice/minimax-m25"]'
-```
-
-### Configure secrets
-
-All three secrets follow the same `openclaw secrets configure` pattern: create an exec provider that fetches from Secrets Manager, then map it to a credential path.
-
-**LLM API key** (full walkthrough):
+### Configure gateway token
 
 Run `openclaw secrets configure` and follow the prompts:
 
 1. **Provider setup** -- add a new provider:
-   - Name: `llm`
+   - Name: `gateway-token`
    - Source: `exec`
    - Command: `/usr/local/bin/aws`
-   - Args: `secretsmanager get-secret-value --secret-id <AGENT_NAME>/llm-api-key --query SecretString --output text`
+   - Args: `secretsmanager get-secret-value --secret-id <AGENT_NAME>/gateway-token --query SecretString --output text`
    - passEnv: `HOME`
    - jsonOnly: `false`
 
 2. **Credential mapping** -- select "Continue" from the provider menu, then:
-   - Select `models.providers.venice.apiKey` from the credential list
+   - Select `gateway.remote.token` from the credential list
    - Source: `exec`
-   - Provider: `llm`
+   - Provider: `gateway-token`
    - Secret ID: `value`
 
 3. **Apply** the plan
 
-**Remaining secrets** -- repeat the same `openclaw secrets configure` flow with these values:
-
-| Secret | Provider name | Secret ID in args | Credential path |
-|---|---|---|---|
-| Gateway token | `gateway-token` | `<AGENT_NAME>/gateway-token` | `gateway.remote.token` |
-| Web search API key | `web` | `<AGENT_NAME>/web-search-api-key` | `tools.web.search.apiKey` |
-
-All providers use the same exec command (`/usr/local/bin/aws secretsmanager get-secret-value --secret-id <SECRET_ID> --query SecretString --output text`) with `passEnv: HOME` and `jsonOnly: false`.
-
-> All secrets are stored in AWS Secrets Manager and fetched at runtime via the instance IAM role. They never touch disk.
-
-### Start the agent
+### Start the node
 
 ```bash
-openclaw agent
+openclaw node install
+openclaw node run
 ```
 
 ## Placeholders

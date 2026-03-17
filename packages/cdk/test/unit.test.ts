@@ -388,10 +388,11 @@ describe('Resource Counts', () => {
 // --- Security Invariant Tests ---
 
 describe('Security Invariants', () => {
-  test('Agent Server secret access is scoped to specific secrets, not wildcard', () => {
+  test('Agent Server secret access is scoped to gateway-token only, not wildcard', () => {
     const [agentRoleId] = findRole('Agent Server');
     const policies = template.findResources('AWS::IAM::Policy');
 
+    let smStatementCount = 0;
     for (const [, policy] of Object.entries(policies)) {
       const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
       if (!roles.some((r) => r.Ref === agentRoleId)) continue;
@@ -403,15 +404,27 @@ describe('Security Invariants', () => {
           const resource = stmt.Resource;
           expect(resource).toBeDefined();
           expect(resource).not.toBe('*');
+          smStatementCount++;
         }
       }
     }
+
+    // Agent Server should have exactly 1 SM statement (gateway-token only)
+    expect(smStatementCount).toBe(1);
   });
 
-  test('A compromised gateway server cannot access API keys or sign transactions', () => {
+  test('A compromised gateway server cannot sign transactions', () => {
     const [gatewayServerRoleId] = findRole('Gateway Server');
     const actions = getActionsForRole(gatewayServerRoleId);
-    expect(actions).toEqual([]);
+    const kmsActions = actions.filter((a) => a.startsWith('kms:'));
+    expect(kmsActions).toEqual([]);
+  });
+
+  test('Gateway Server role has Secrets Manager access to LLM and web search secrets', () => {
+    const [gatewayServerRoleId] = findRole('Gateway Server');
+    const actions = getActionsForRole(gatewayServerRoleId);
+    const smActions = actions.filter((a) => a.startsWith('secretsmanager:'));
+    expect(smActions.length).toBeGreaterThan(0);
   });
 
   test('No server accepts traffic from the public internet', () => {
@@ -580,11 +593,25 @@ describe('Gateway Token Secret', () => {
     expect(foundGatewayTokenGrant).toBe(true);
   });
 
-  test('Gateway Server role has no Secrets Manager access', () => {
+  test('Gateway Server role does not have access to the gateway token secret', () => {
     const [gatewayServerRoleId] = findRole('Gateway Server');
-    const actions = getActionsForRole(gatewayServerRoleId);
-    const smActions = actions.filter((a) => a.startsWith('secretsmanager:'));
-    expect(smActions).toEqual([]);
+    const [agentRoleId] = findRole('Agent Server');
+    const policies = template.findResources('AWS::IAM::Policy');
+
+    // Find the policy granting gateway-token access -- it should be on agentRole, not gatewayServerRole
+    for (const [, policy] of Object.entries(policies)) {
+      const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
+      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
+
+      const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
+      for (const stmt of statements) {
+        const stmtActions = Array.isArray(stmt.Action) ? stmt.Action : [stmt.Action];
+        if (stmtActions.includes('secretsmanager:GetSecretValue')) {
+          // This gateway-token policy should not also be on the gateway role
+          expect(roles.some((r) => r.Ref === gatewayServerRoleId)).toBe(false);
+        }
+      }
+    }
   });
 });
 
@@ -597,14 +624,14 @@ describe('LLM API Key Secret', () => {
     });
   });
 
-  test('Agent Server role has scoped read access to the LLM secret', () => {
-    const [agentRoleId] = findRole('Agent Server');
+  test('Gateway Server role has scoped read access to the LLM secret', () => {
+    const [gatewayServerRoleId] = findRole('Gateway Server');
     const policies = template.findResources('AWS::IAM::Policy');
 
     let foundLlmGrant = false;
     for (const [, policy] of Object.entries(policies)) {
       const roles = (policy.Properties?.Roles as { Ref: string }[]) ?? [];
-      if (!roles.some((r) => r.Ref === agentRoleId)) continue;
+      if (!roles.some((r) => r.Ref === gatewayServerRoleId)) continue;
 
       const statements = (policy.Properties?.PolicyDocument as { Statement: Record<string, unknown>[] })?.Statement ?? [];
       for (const stmt of statements) {
@@ -702,7 +729,7 @@ describe('Telegram Bot Token Secret', () => {
     }
   });
 
-  test('No Telegram secret and no Gateway SM access when TELEGRAM_BOT_TOKEN is not set', () => {
+  test('No Telegram secret when TELEGRAM_BOT_TOKEN is not set', () => {
     delete process.env.TELEGRAM_BOT_TOKEN;
     const tmpl = createStackWithConfig();
 
@@ -712,13 +739,6 @@ describe('Telegram Bot Token Secret', () => {
       (s) => (s.Properties?.Name as string) === `${TEST_AGENT_NAME}/telegram-token`,
     );
     expect(telegramSecrets).toHaveLength(0);
-
-    // Gateway role has no actions
-    const [gatewayRoleId] = findResourceIn(tmpl, 'AWS::IAM::Role', (_id, r) =>
-      (r.Properties?.Description as string)?.includes('Gateway Server'),
-    );
-    const actions = getActionsForRoleIn(tmpl, gatewayRoleId);
-    expect(actions).toEqual([]);
   });
 
   test('Secret count is 5 when TELEGRAM_BOT_TOKEN is set (LLM + RPC + Web + gateway-token + telegram)', () => {

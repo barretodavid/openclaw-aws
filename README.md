@@ -10,15 +10,15 @@ graph LR
     Laptop -->|"SSM Session Manager"| GatewayEC2
     subgraph VPC ["Default VPC -- public subnets"]
         DNS["Route 53<br/>Private Hosted Zone<br/>(gateway.&lt;AGENT_NAME&gt;.vpc)"]
-        AgentEC2["Agent Server<br/>(EC2, configurable)"]
+        AgentEC2["Agent Server / Node<br/>(EC2, configurable)"]
         GatewayEC2["Gateway Server<br/>(EC2 t3a.small)"]
-        AgentEC2 -->|"WebSocket<br/>(ws://gateway.&lt;AGENT_NAME&gt;.vpc:18789)"| GatewayEC2
+        AgentEC2 -->|"WebSocket node<br/>(ws://gateway.&lt;AGENT_NAME&gt;.vpc:18789)"| GatewayEC2
     end
     GatewayEC2 -->|"channel messages"| Channels["Telegram / WhatsApp<br/>/ Signal"]
-    AgentEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, gateway token, Telegram token)"]
-    GatewayEC2 -->|"reads Telegram token"| SM
-    AgentEC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
-    AgentEC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
+    GatewayEC2 -->|"reads API keys"| SM["Secrets Manager<br/>(LLM, RPC, Web, Telegram token)"]
+    AgentEC2 -->|"reads gateway token"| SM
+    GatewayEC2 -->|"HTTPS"| LLM["LLM Provider<br/>(Venice.ai)"]
+    GatewayEC2 -->|"HTTPS"| RPC["RPC Provider<br/>(Alchemy)"]
     AgentEC2 <-->|"Sign(tx hash) / signature"| KMS["KMS<br/>(ECC_NIST_P256)"]
     AgentEC2 -->|"signed tx"| Blockchain
 ```

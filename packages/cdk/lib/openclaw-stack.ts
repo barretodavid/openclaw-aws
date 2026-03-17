@@ -116,32 +116,32 @@ export class OpenclawStack extends cdk.Stack {
     const rpcApiKey = resolveRpcProvider();
     const telegramToken = resolveTelegramToken();
 
-    // --- LLM API Key Secret (Agent Server only) ---
+    // --- LLM API Key Secret (Gateway Server only) ---
     const llmSecret = new secretsmanager.Secret(this, 'LlmApiKeySecret', {
       secretName: `${agentName}/llm-api-key`,
-      description: 'LLM provider API key - only the Agent Server EC2 can read this',
+      description: 'LLM provider API key - only the Gateway Server EC2 can read this',
       secretStringValue: cdk.SecretValue.unsafePlainText(llmApiKey),
     });
-    llmSecret.grantRead(agentRole);
+    llmSecret.grantRead(gatewayServerRole);
 
-    // --- RPC API Key Secret (Agent Server only, optional) ---
+    // --- RPC API Key Secret (Gateway Server only, optional) ---
     if (rpcApiKey) {
       const rpcSecret = new secretsmanager.Secret(this, 'RpcApiKeySecret', {
         secretName: `${agentName}/rpc-api-key`,
-        description: 'RPC provider API key - only the Agent Server EC2 can read this',
+        description: 'RPC provider API key - only the Gateway Server EC2 can read this',
         secretStringValue: cdk.SecretValue.unsafePlainText(rpcApiKey),
       });
-      rpcSecret.grantRead(agentRole);
+      rpcSecret.grantRead(gatewayServerRole);
     }
 
-    // --- Web Search Secret (Agent Server only) ---
+    // --- Web Search Secret (Gateway Server only) ---
     const webApiKey = requireWebProvider();
     const webSecret = new secretsmanager.Secret(this, 'WebApiKeySecret', {
       secretName: `${agentName}/web-search-api-key`,
-      description: 'Web search provider API key - only the Agent Server EC2 can read this',
+      description: 'Web search provider API key - only the Gateway Server EC2 can read this',
       secretStringValue: cdk.SecretValue.unsafePlainText(webApiKey),
     });
-    webSecret.grantRead(agentRole);
+    webSecret.grantRead(gatewayServerRole);
 
     // --- Gateway Token Secret (Agent Server reads, operator populates post-deploy) ---
     const gatewayTokenSecret = new secretsmanager.Secret(this, 'GatewayTokenSecret', {

@@ -16,7 +16,7 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 - **WHEN** its IAM role is evaluated
 - **THEN** it SHALL have KMS permissions (CreateKey, Sign, GetPublicKey, DescribeKey) restricted to keys tagged `${agentName}:wallet`
 - **AND** it SHALL have tag:GetResources for key discovery
-- **AND** it SHALL have Secrets Manager read access scoped to the `${agentName}/web-search-api-key`, `${agentName}/gateway-token`, `${agentName}/llm-api-key`, and `${agentName}/rpc-api-key` secrets only
+- **AND** it SHALL have Secrets Manager read access scoped to the `${agentName}/gateway-token` secret only
 - **AND** it SHALL have SSM Session Manager access
 
 #### Scenario: Gateway role permissions
@@ -25,8 +25,9 @@ Each EC2 instance SHALL have a dedicated IAM role with minimal permissions for i
 - **WHEN** its IAM role is evaluated
 - **THEN** it SHALL have SSM Session Manager access
 - **AND** it SHALL NOT have KMS permissions
-- **AND** when `TELEGRAM_BOT_TOKEN` is set in `.env`, it SHALL have Secrets Manager read access scoped to the `${agentName}/telegram-token` secret only
-- **AND** when `TELEGRAM_BOT_TOKEN` is not set in `.env`, it SHALL NOT have any Secrets Manager permissions
+- **AND** it SHALL have Secrets Manager read access scoped to the `${agentName}/llm-api-key` and `${agentName}/web-search-api-key` secrets
+- **AND** when `RPC_API_KEY` is set in `.env`, it SHALL also have Secrets Manager read access to the `${agentName}/rpc-api-key` secret
+- **AND** when `TELEGRAM_BOT_TOKEN` is set in `.env`, it SHALL also have Secrets Manager read access to the `${agentName}/telegram-token` secret
 - **AND** WhatsApp channel configuration SHALL NOT require any changes to the Gateway IAM role (session data is local-only)
 
 ### Requirement: No Public Inbound Traffic

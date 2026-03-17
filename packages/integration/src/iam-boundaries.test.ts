@@ -5,24 +5,6 @@ import { TEST_REGION, AGENT_NAME } from './config';
 const ctx = readContext();
 
 describe('IAM Boundary Verification', () => {
-  test('Agent Server can read LLM API key secret from Secrets Manager', async () => {
-    const result = await runCommand(
-      ctx.agentInstanceId,
-      `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/llm-api-key --region ${TEST_REGION} --query SecretString --output text`,
-    );
-
-    expect(result.stdout.trim()).toBeTruthy();
-  });
-
-  test('Agent Server can read Web Search secret from Secrets Manager', async () => {
-    const result = await runCommand(
-      ctx.agentInstanceId,
-      `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/web-search-api-key --region ${TEST_REGION} --query SecretString --output text`,
-    );
-
-    expect(result.stdout.trim()).toBeTruthy();
-  });
-
   test('Agent Server can read gateway token secret from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.agentInstanceId,
@@ -34,6 +16,26 @@ describe('IAM Boundary Verification', () => {
     expect(output).not.toMatch(/AccessDeniedException|not authorized/i);
   });
 
+  test('Agent Server cannot read LLM API key from Secrets Manager', async () => {
+    const result = await runCommand(
+      ctx.agentInstanceId,
+      `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/llm-api-key --region ${TEST_REGION} 2>&1 || true`,
+    );
+
+    const output = result.stdout + result.stderr;
+    expect(output).toMatch(/AccessDeniedException|not authorized/i);
+  });
+
+  test('Agent Server cannot read web search secret from Secrets Manager', async () => {
+    const result = await runCommand(
+      ctx.agentInstanceId,
+      `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/web-search-api-key --region ${TEST_REGION} 2>&1 || true`,
+    );
+
+    const output = result.stdout + result.stderr;
+    expect(output).toMatch(/AccessDeniedException|not authorized/i);
+  });
+
   test('Agent Server cannot read unscoped secrets from Secrets Manager', async () => {
     const result = await runCommand(
       ctx.agentInstanceId,
@@ -42,6 +44,24 @@ describe('IAM Boundary Verification', () => {
 
     const output = result.stdout + result.stderr;
     expect(output).toMatch(/AccessDeniedException|not authorized|NotFoundException/i);
+  });
+
+  test('Gateway Server can read LLM API key from Secrets Manager', async () => {
+    const result = await runCommand(
+      ctx.gatewayServerInstanceId,
+      `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/llm-api-key --region ${TEST_REGION} --query SecretString --output text`,
+    );
+
+    expect(result.stdout.trim()).toBeTruthy();
+  });
+
+  test('Gateway Server can read web search secret from Secrets Manager', async () => {
+    const result = await runCommand(
+      ctx.gatewayServerInstanceId,
+      `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/web-search-api-key --region ${TEST_REGION} --query SecretString --output text`,
+    );
+
+    expect(result.stdout.trim()).toBeTruthy();
   });
 
   test('Gateway Server can read Telegram token secret from Secrets Manager', async () => {
@@ -57,16 +77,6 @@ describe('IAM Boundary Verification', () => {
     const result = await runCommand(
       ctx.gatewayServerInstanceId,
       `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/gateway-token --region ${TEST_REGION} 2>&1 || true`,
-    );
-
-    const output = result.stdout + result.stderr;
-    expect(output).toMatch(/AccessDeniedException|not authorized/i);
-  });
-
-  test('Gateway Server cannot read API keys from Secrets Manager', async () => {
-    const result = await runCommand(
-      ctx.gatewayServerInstanceId,
-      `aws secretsmanager get-secret-value --secret-id ${AGENT_NAME}/llm-api-key --region ${TEST_REGION} 2>&1 || true`,
     );
 
     const output = result.stdout + result.stderr;

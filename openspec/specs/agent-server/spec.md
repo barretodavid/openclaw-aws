@@ -8,7 +8,7 @@ The Agent server SHALL run the OpenClaw agent with Docker support and hardware-b
 
 ### Requirement: Instance Configuration
 
-The Agent EC2 instance SHALL be provisioned with Docker, Node.js, AWS CLI, and OpenClaw.
+The Agent EC2 instance SHALL be provisioned with Docker, Node.js, AWS CLI, and OpenClaw to serve as an OpenClaw node (peripheral for shell execution and KMS wallet signing).
 
 #### Scenario: Software provisioning
 
@@ -48,7 +48,7 @@ The Agent SHALL create and use KMS-backed wallet keys for Starknet transaction s
 
 ### Requirement: Internal Connectivity
 
-The Agent Server SHALL connect to the Gateway Server via WebSocket and reach LLM/RPC providers directly via HTTPS.
+The Agent Server SHALL connect to the Gateway Server via WebSocket as an OpenClaw node, authenticating with the gateway token from Secrets Manager.
 
 #### Scenario: Gateway Server connection
 
@@ -56,8 +56,7 @@ The Agent Server SHALL connect to the Gateway Server via WebSocket and reach LLM
 - **THEN** it SHALL use `ws://gateway.${agentName}.vpc:18789`
 - **AND** the OPENCLAW_ALLOW_INSECURE_PRIVATE_WS environment variable SHALL be set
 
-#### Scenario: LLM and RPC API access
+#### Scenario: Gateway token retrieval
 
-- **WHEN** the Agent makes an LLM or RPC API request
-- **THEN** it SHALL connect directly to the provider via HTTPS
-- **AND** it SHALL retrieve API keys from Secrets Manager (`${agentName}/llm-api-key`, `${agentName}/rpc-api-key`)
+- **WHEN** the Agent authenticates with the Gateway Server
+- **THEN** it SHALL retrieve the gateway token from Secrets Manager (`${agentName}/gateway-token`)
